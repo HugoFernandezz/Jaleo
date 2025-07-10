@@ -4,9 +4,10 @@ import {
   Text,
   StyleSheet,
   SectionList,
-  TextInput,
   Alert,
   ActivityIndicator,
+  ScrollView,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,7 +33,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   // El estado ahora será para las secciones
   const [partySections, setPartySections] = useState<SectionData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedVenue, setSelectedVenue] = useState<string>('Todas');
+  const [availableVenues, setAvailableVenues] = useState<string[]>(['Todas']);
 
   useEffect(() => {
     loadParties();
@@ -61,7 +63,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     // La función que procesa ahora se llamará desde un useMemo
     const processedParties = processParties();
     setPartySections(processedParties);
-  }, [searchQuery, parties]);
+  }, [selectedVenue, parties]);
+
+  useEffect(() => {
+    // Extraer todas las discotecas únicas de los eventos
+    const allVenues = new Set<string>();
+    parties.forEach(party => {
+      allVenues.add(party.venueName);
+    });
+    
+    const sortedVenues = ['Todas', ...Array.from(allVenues).sort()];
+    setAvailableVenues(sortedVenues);
+  }, [parties]);
 
   const loadParties = async () => {
     try {
@@ -87,14 +100,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const processParties = (): SectionData[] => {
     let filtered = parties;
 
-    // Filtrar por búsqueda de texto
-    if (searchQuery.trim()) {
-      filtered = filtered.filter(party =>
-        party.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        party.venueName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        party.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        party.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
+    // Filtrar por discoteca seleccionada
+    if (selectedVenue !== 'Todas') {
+      filtered = filtered.filter(party => party.venueName === selectedVenue);
     }
 
     // Ordenar por fecha cronológica ascendente
@@ -122,6 +130,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     }));
   };
 
+  const handleVenueSelect = (venue: string) => {
+    setSelectedVenue(venue);
+  };
+
   const handlePartyPress = (party: Party) => {
     navigation.navigate('EventDetail', { party });
   };
@@ -146,32 +158,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         <Text style={styles.subtitle}>
           Descubre las mejores fiestas de esta noche
         </Text>
-        
-        {/* Removed update info banner */}
-        
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={20} color="#666" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar fiestas, locales..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholderTextColor="#999"
-          />
-          {searchQuery.length > 0 && (
-            <Ionicons 
-              name="close-circle" 
-              size={20} 
-              color="#666" 
-              style={styles.clearIcon}
-              onPress={() => setSearchQuery('')}
-            />
-          )}
-        </View>
       </View>
       
-      {/* Filtros de etiquetas */}
-      {/* Removed TagFilter component */}
+      {/* Selector de discotecas */}
+      <View style={styles.venueSelector}>
+        <Text style={styles.venueSelectorTitle}>Discotecas</Text>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.venueScrollContainer}
+        >
+          {availableVenues.map((venue, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.venueButton,
+                selectedVenue === venue && styles.venueButtonSelected
+              ]}
+              onPress={() => handleVenueSelect(venue)}
+            >
+              <Text style={[
+                styles.venueButtonText,
+                selectedVenue === venue && styles.venueButtonTextSelected
+              ]}>
+                {venue}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
     </View>
   );
 
@@ -182,11 +197,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         size={64} 
         color="#ccc" 
       />
-      {searchQuery ? (
+      {selectedVenue !== 'Todas' ? (
         <>
-          <Text style={styles.emptyTitle}>No se encontraron fiestas</Text>
+          <Text style={styles.emptyTitle}>No hay eventos en {selectedVenue}</Text>
           <Text style={styles.emptySubtitle}>
-            Intenta con otros términos de búsqueda
+            Selecciona otra discoteca o "Todas" para ver más eventos
           </Text>
         </>
       ) : (
@@ -244,40 +259,22 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   header: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 15,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#1f2937',
-    marginBottom: 4,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
     color: '#6b7280',
-    marginBottom: 20,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1f2937',
-  },
-  clearIcon: {
-    marginLeft: 12,
+    textAlign: 'center',
   },
   listContent: {
     paddingBottom: 20,
@@ -316,5 +313,46 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     lineHeight: 24,
+  },
+  venueSelector: {
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  venueSelectorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  venueScrollContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  venueButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  venueButtonSelected: {
+    backgroundColor: '#6366f1',
+    borderColor: '#6366f1',
+  },
+  venueButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#475569',
+  },
+  venueButtonTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
   },
 }); 
