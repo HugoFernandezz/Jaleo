@@ -35,3 +35,17 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Firebase credentials (NEVER commit these!)
+**/serviceAccountKey.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Backend data files
+backend/data/*.json
+backend/data/*.html
+
+# Python
+__pycache__/
+*.pyc
+backend/venv/

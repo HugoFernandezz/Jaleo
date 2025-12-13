@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SectionList,
+  FlatList,
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,182 +23,158 @@ interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
-interface SectionData {
-  title: string;
-  data: Party[];
-}
-
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [parties, setParties] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<string>('Todas');
   const [availableVenues, setAvailableVenues] = useState<string[]>(['Todas']);
-  
-  // Usar useRef para mantener referencia actual de parties sin re-renders
-  const partiesRef = useRef<Party[]>(parties);
-  
-  // Actualizar la referencia cuando parties cambie
-  useEffect(() => {
-    partiesRef.current = parties;
-  }, [parties]);
 
   useEffect(() => {
     loadParties();
     
-    // Timer para verificar nuevos datos automáticamente cada hora
-    const backgroundUpdateInterval = setInterval(async () => {
-      try {
-        const response = await apiService.getCompleteData();
-        if (response.success && response.data.parties.length > 0) {
-          // Comparación más eficiente: verificar longitud y IDs usando la ref
-          const newParties = response.data.parties;
-          const currentParties = partiesRef.current;
-          const hasChanges = newParties.length !== currentParties.length || 
-                           newParties.some((party, index) => 
-                             !currentParties[index] || currentParties[index].id !== party.id
-                           );
-          
-          if (hasChanges) {
-            setParties(newParties);
-          }
-        }
-      } catch (error) {
-        // Error silenciado para no spam en producción
+    // Suscribirse a actualizaciones en tiempo real
+    const unsubscribe = apiService.subscribeToUpdates((data) => {
+      if (data.parties.length > 0) {
+        setParties(data.parties);
       }
-    }, 3600000); // Cada hora
+    });
 
-    return () => clearInterval(backgroundUpdateInterval);
-  }, []); // Sin dependencias para evitar bucle infinito
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
-    // Extraer todas las discotecas únicas de los eventos
+    // Extraer venues únicos
     const allVenues = new Set<string>();
     parties.forEach(party => {
-      allVenues.add(party.venueName);
+      if (party.venueName) {
+        allVenues.add(party.venueName.trim());
+      }
     });
-    
-    const sortedVenues = ['Todas', ...Array.from(allVenues).sort()];
-    setAvailableVenues(sortedVenues);
+    setAvailableVenues(['Todas', ...Array.from(allVenues).sort()]);
   }, [parties]);
 
-  // Optimizar processParties usando useMemo
-  const partySections = useMemo((): SectionData[] => {
+  // Filtrar y agrupar eventos
+  const groupedParties = useMemo(() => {
     let filtered = parties;
 
-    // Filtrar por discoteca seleccionada
     if (selectedVenue !== 'Todas') {
-      filtered = filtered.filter(party => party.venueName === selectedVenue);
+      filtered = filtered.filter(party => party.venueName.trim() === selectedVenue);
     }
 
-    // Ordenar por fecha cronológica ascendente
+    // Ordenar por fecha
     filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Agrupar en secciones por día
-    const sections: { [key: string]: Party[] } = {};
+    // Agrupar por fecha
+    const groups: { [key: string]: Party[] } = {};
     filtered.forEach(party => {
-      const partyDate = new Date(party.date);
-      const dayKey = new Date(partyDate.getFullYear(), partyDate.getMonth(), partyDate.getDate()).toISOString();
-      
-      if (!sections[dayKey]) {
-        sections[dayKey] = [];
+      const dateKey = party.date;
+      if (!groups[dateKey]) {
+        groups[dateKey] = [];
       }
-      sections[dayKey].push(party);
+      groups[dateKey].push(party);
     });
 
-    // Formatear para SectionList
-    const locale = 'es-ES';
-    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-
-    return Object.keys(sections).map(dateKey => ({
-      title: new Date(dateKey).toLocaleDateString(locale, options),
-      data: sections[dateKey],
+    return Object.entries(groups).map(([date, items]) => ({
+      date,
+      items,
     }));
-  }, [selectedVenue, parties]);
+  }, [parties, selectedVenue]);
 
   const loadParties = async () => {
     try {
       setLoading(true);
-      
       const response = await apiService.getCompleteData();
-      
       if (response.success) {
         setParties(response.data.parties);
-      } else {
-        // Si no hay datos disponibles aún, mantener lista vacía sin mostrar error
-        setParties([]);
       }
-      
     } catch (error) {
       console.error('Error loading parties:', error);
-      setParties([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVenueSelect = useCallback((venue: string) => {
-    setSelectedVenue(venue);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    apiService.clearCache();
+    await loadParties();
+    setRefreshing(false);
   }, []);
 
   const handlePartyPress = useCallback((party: Party) => {
     navigation.navigate('EventDetail', { party });
   }, [navigation]);
 
-  const renderPartyCard = useCallback(({ item }: { item: Party }) => (
-    <PartyCard 
-      party={item} 
-      onPress={() => handlePartyPress(item)}
-    />
-  ), [handlePartyPress]);
+  // Formatear fecha para header
+  const formatSectionDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const renderSectionHeader = useCallback(({ section: { title } }: { section: SectionData }) => {
-    // Separar el día de la semana del resto de la fecha
-    const parts = title.split(', ');
-    const dayOfWeek = parts[0];
-    const fullDate = parts.slice(1).join(', ');
-    
-    return (
+    const isToday = date.toDateString() === today.toDateString();
+    const isTomorrow = date.toDateString() === tomorrow.toDateString();
+
+    if (isToday) return 'Hoy';
+    if (isTomorrow) return 'Mañana';
+
+    const options: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long' 
+    };
+    return date.toLocaleDateString('es-ES', options);
+  };
+
+  const renderItem = ({ item }: { item: { date: string; items: Party[] } }) => (
+    <View style={styles.section}>
+      {/* Header de fecha */}
       <View style={styles.sectionHeader}>
-        <View style={styles.dateContainer}>
-          <Ionicons name="calendar" size={22} color="#6366f1" style={styles.dateIcon} />
-          <View style={styles.dateTextContainer}>
-            <Text style={styles.dayOfWeek}>{dayOfWeek}</Text>
-            <Text style={styles.fullDate}>{fullDate}</Text>
-          </View>
-        </View>
-      </View>
-    );
-  }, []);
-
-  const renderHeader = () => (
-    <View>
-      <View style={styles.header}>
-        <Text style={styles.title}>PartyFinder Murcia</Text>
-        <Text style={styles.subtitle}>
-          Descubre las mejores fiestas de esta noche
+        <Text style={styles.sectionDate}>{formatSectionDate(item.date)}</Text>
+        <Text style={styles.sectionCount}>
+          {item.items.length} {item.items.length === 1 ? 'evento' : 'eventos'}
         </Text>
       </View>
-      
-      {/* Selector de discotecas */}
-      <View style={styles.venueSelector}>
-        <Text style={styles.venueSelectorTitle}>Discotecas</Text>
+
+      {/* Eventos del día */}
+      {item.items.map((party) => (
+        <PartyCard 
+          key={party.id} 
+          party={party} 
+          onPress={() => handlePartyPress(party)}
+        />
+      ))}
+    </View>
+  );
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      {/* Título */}
+      <View style={styles.titleContainer}>
+        <Text style={styles.title}>Eventos</Text>
+        <Text style={styles.subtitle}>Murcia</Text>
+      </View>
+
+      {/* Filtro de venues */}
+      <View style={styles.filterContainer}>
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.venueScrollContainer}
+          contentContainerStyle={styles.filterScroll}
         >
-          {availableVenues.map((venue, index) => (
+          {availableVenues.map((venue) => (
             <TouchableOpacity
-              key={index}
+              key={venue}
               style={[
-                styles.venueButton,
-                selectedVenue === venue && styles.venueButtonSelected
+                styles.filterChip,
+                selectedVenue === venue && styles.filterChipActive
               ]}
-              onPress={() => handleVenueSelect(venue)}
+              onPress={() => setSelectedVenue(venue)}
             >
               <Text style={[
-                styles.venueButtonText,
-                selectedVenue === venue && styles.venueButtonTextSelected
+                styles.filterText,
+                selectedVenue === venue && styles.filterTextActive
               ]}>
                 {venue}
               </Text>
@@ -208,28 +185,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     </View>
   );
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons 
-        name="calendar-outline" 
-        size={64} 
-        color="#ccc" 
-      />
-      {selectedVenue !== 'Todas' ? (
-        <>
-          <Text style={styles.emptyTitle}>No hay eventos en {selectedVenue}</Text>
-          <Text style={styles.emptySubtitle}>
-            Selecciona otra discoteca o "Todas" para ver más eventos
-          </Text>
-        </>
-      ) : (
-        <>
-          <Text style={styles.emptyTitle}>No hay fiestas disponibles</Text>
-          <Text style={styles.emptySubtitle}>
-            Vuelve más tarde para ver nuevos eventos
-          </Text>
-        </>
-      )}
+  const renderEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name="calendar-outline" size={48} color="#D1D5DB" />
+      </View>
+      <Text style={styles.emptyTitle}>No hay eventos</Text>
+      <Text style={styles.emptySubtitle}>
+        {selectedVenue !== 'Todas' 
+          ? `No hay eventos en ${selectedVenue}`
+          : 'Vuelve más tarde para ver nuevos eventos'
+        }
+      </Text>
     </View>
   );
 
@@ -237,28 +204,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366f1" />
-          <Text style={styles.loadingText}>Cargando fiestas...</Text>
+          <ActivityIndicator size="large" color="#1F2937" />
+          <Text style={styles.loadingText}>Cargando eventos...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <SectionList
-        sections={partySections}
-        renderItem={renderPartyCard}
-        keyExtractor={(item) => item.id}
-        renderSectionHeader={renderSectionHeader}
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <FlatList
+        data={groupedParties}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.date}
         ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmptyState}
+        ListEmptyComponent={renderEmpty}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        style={styles.sectionList}
-        stickySectionHeadersEnabled={true}
-        bounces={false}
-        overScrollMode="never"
+        contentContainerStyle={[
+          styles.listContent,
+          groupedParties.length === 0 && styles.listContentEmpty
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#1F2937"
+          />
+        }
       />
     </SafeAreaView>
   );
@@ -267,7 +239,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
     flex: 1,
@@ -275,137 +247,109 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
+    marginTop: 12,
+    fontSize: 15,
+    color: '#6B7280',
   },
   header: {
+    paddingTop: 8,
+    paddingBottom: 16,
+    backgroundColor: '#F9FAFB',
+  },
+  titleContainer: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
+    marginBottom: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1F2937',
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#6b7280',
-    textAlign: 'center',
+    fontSize: 32,
+    fontWeight: '300',
+    color: '#9CA3AF',
+    letterSpacing: -0.5,
+  },
+  filterContainer: {
+    marginBottom: 8,
+  },
+  filterScroll: {
+    paddingHorizontal: 16,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  filterChipActive: {
+    backgroundColor: '#1F2937',
+    borderColor: '#1F2937',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  filterTextActive: {
+    color: '#FFFFFF',
   },
   listContent: {
-    paddingBottom: 20,
-    flexGrow: 1,
+    paddingBottom: 32,
+  },
+  listContentEmpty: {
+    flex: 1,
+  },
+  section: {
+    marginBottom: 8,
   },
   sectionHeader: {
-    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingVertical: 12,
   },
-  sectionHeaderText: {
+  sectionDate: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    fontWeight: '600',
+    color: '#1F2937',
     textTransform: 'capitalize',
   },
-  emptyState: {
+  sectionCount: {
+    fontSize: 13,
+    color: '#9CA3AF',
+  },
+  emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-    paddingVertical: 60,
+  },
+  emptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
-    marginTop: 16,
+    color: '#1F2937',
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 16,
-    color: '#6b7280',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  venueSelector: {
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  venueSelectorTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  venueScrollContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  venueButton: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 6,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  venueButtonSelected: {
-    backgroundColor: '#6366f1',
-    borderColor: '#6366f1',
-  },
-  venueButtonText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#475569',
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
   },
-  venueButtonTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  dateContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dateIcon: {
-    marginRight: 10,
-  },
-  dateTextContainer: {
-    marginLeft: 10,
-  },
-  dayOfWeek: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  fullDate: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  sectionList: {
-    backgroundColor: '#ffffff',
-  },
-}); 
+});

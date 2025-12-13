@@ -51,6 +51,11 @@ export interface Party {
   tags: string[];
   venueAddress?: string;
   ticketTypes?: TicketType[];
+  // Nuevos campos
+  ageMinimum?: number;
+  dressCode?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface TicketPurchase {

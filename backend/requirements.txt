@@ -1,0 +1,17 @@
+# Backend PartyFinder - Dependencias
+# ==================================
+
+# Scraping
+nodriver>=0.38
+beautifulsoup4>=4.12.0
+
+# Servidor API
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Firebase
+firebase-admin>=6.0.0
+
+# Para instalar Chromium (ejecutar después de pip install):
+# playwright install chromium
+

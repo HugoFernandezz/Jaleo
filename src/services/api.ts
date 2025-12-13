@@ -1,29 +1,125 @@
 import { ApiResponse, Party, Venue, TicketType } from '../types';
+import { getEventos, subscribeToEventos } from './firebase';
+import { DocumentData } from 'firebase/firestore';
 
-// URL del bin de JSONBin que contiene los datos de eventos
-const API_BASE_URL = 'https://api.jsonbin.io/v3/b/686d49718960c979a5b94ce1/latest';
+// Configuración: usar Firebase o fallback local
+const USE_FIREBASE = true;
 
-// Clave de acceso para JSONBin. 
-// Es más seguro almacenarla en una variable de entorno en una aplicación real.
-const API_MASTER_KEY = '$2a$10$h64fSgvYbJKKoITgCHExTOqLoX6KlNaeNoN0VJAHHgcf9SJ9pDRUq';
+// URLs de fallback para desarrollo local
+const LOCAL_API_URL = 'http://192.168.1.49:5000/api/events';
+const JSONBIN_URL = 'https://api.jsonbin.io/v3/b/686d49718960c979a5b94ce1/latest';
+const JSONBIN_KEY = '$2a$10$h64fSgvYbJKKoITgCHExTOqLoX6KlNaeNoN0VJAHHgcf9SJ9pDRUq';
 
-// Función para transformar los datos de la API al formato que la app espera
-const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } => {
+/**
+ * Transforma un evento de Firebase al formato de la app
+ */
+function transformFirebaseEvent(doc: DocumentData, index: number): { venue: Venue, party: Party } {
+  const lugar = doc.lugar || {};
+  
+  // Crear venue
+  const venue: Venue = {
+    id: `v_${lugar.nombre?.replace(/\s/g, '_') || index}`,
+    name: lugar.nombre || 'Venue',
+    description: lugar.descripcion || '',
+    address: lugar.direccion || '',
+    imageUrl: lugar.imagen_url || lugar.imagen_portada || '',
+    website: lugar.sitio_web || '',
+    phone: lugar.telefono || '',
+    isActive: true,
+    category: {
+      id: '1',
+      name: lugar.categoria || 'Discoteca',
+      icon: 'musical-notes',
+    },
+  };
+  
+  // Transformar entradas
+  const entradas = doc.entradas || [];
+  const ticketTypes: TicketType[] = entradas.map((entrada: any, i: number) => ({
+    id: entrada.id || `t_${index}_${i}`,
+    name: entrada.tipo || 'Entrada General',
+    description: entrada.descripcion || '',
+    price: parseFloat(entrada.precio) || 0,
+    isAvailable: !entrada.agotadas,
+    isSoldOut: entrada.agotadas || false,
+    fewLeft: entrada.quedan_pocas || false,
+    restrictions: entrada.restricciones || '',
+    purchaseUrl: entrada.url_compra || '',
+  }));
+  
+  // Calcular precio mínimo
+  const prices = ticketTypes.map(t => t.price).filter(p => p > 0);
+  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+  
+  // Crear party
+  const party: Party = {
+    id: doc.id || `p_${index}`,
+    venueId: venue.id,
+    venueName: venue.name,
+    title: doc.nombreEvento || 'Evento',
+    description: doc.descripcion || '',
+    date: doc.fecha || '',
+    startTime: doc.hora_inicio || '23:00',
+    endTime: doc.hora_fin || '06:00',
+    price: minPrice,
+    imageUrl: doc.imagen_url || venue.imageUrl,
+    ticketUrl: doc.url_evento || '',
+    isAvailable: ticketTypes.some(t => t.isAvailable),
+    fewLeft: ticketTypes.some(t => t.fewLeft && t.isAvailable),
+    capacity: doc.aforo || 500,
+    soldTickets: doc.entradas_vendidas || 0,
+    tags: doc.tags || ['Fiesta'],
+    venueAddress: venue.address,
+    ticketTypes: ticketTypes,
+    // Campos adicionales
+    ageMinimum: doc.edad_minima || 18,
+    dressCode: doc.codigo_vestimenta || '',
+    latitude: lugar.latitud,
+    longitude: lugar.longitud,
+  };
+  
+  return { venue, party };
+}
+
+/**
+ * Transforma los eventos de Firebase al formato de la app
+ */
+function transformFirebaseData(eventos: DocumentData[]): { venues: Venue[], parties: Party[] } {
+  const venues: Venue[] = [];
+  const parties: Party[] = [];
+  const venueMap = new Map<string, Venue>();
+  
+  eventos.forEach((doc, index) => {
+    const { venue, party } = transformFirebaseEvent(doc, index);
+    
+    // Añadir venue si no existe
+    if (!venueMap.has(venue.name)) {
+      venueMap.set(venue.name, venue);
+      venues.push(venue);
+    }
+    
+    parties.push(party);
+  });
+  
+  return { venues, parties };
+}
+
+/**
+ * Transforma datos del formato antiguo (JSONBin/local)
+ */
+function transformLegacyData(apiData: any[]): { venues: Venue[], parties: Party[] } {
   const venues: Venue[] = [];
   const parties: Party[] = [];
   const venueMap = new Map<string, Venue>();
 
   apiData.forEach((item, index) => {
-    // Comprobación de seguridad mejorada para la nueva estructura
     if (!item || !item.evento || !item.evento.lugar) {
-      console.warn(`Saltando item con datos incompletos en el índice ${index}:`, item);
       return;
     }
 
     const eventoData = item.evento;
     const lugarData = eventoData.lugar;
 
-    // 1. Procesar y añadir el Venue (si no existe ya)
     let venue: Venue | undefined = venueMap.get(lugarData.nombre);
     if (!venue) {
       venue = {
@@ -41,24 +137,22 @@ const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } =>
           icon: 'musical-notes',
         },
       };
-      venueMap.set(venue.id, venue);
+      venueMap.set(venue.name, venue);
       venues.push(venue);
     }
 
-    // 2. Procesar los Tipos de Entrada
     const ticketTypes: TicketType[] = (eventoData.entradas || []).map((t: any, i: number) => ({
-      id: `t${index}-${i}`,
-      name: t.tipo, // <-- CORREGIDO: de 'nombre' a 'tipo'
+      id: t.id || `t${index}-${i}`,
+      name: t.tipo,
       description: t.descripcion || '',
       price: parseFloat(t.precio) || 0,
-      isAvailable: !t.agotadas, // <-- CORREGIDO: de 'agotado' a 'agotadas'
-      isSoldOut: t.agotadas,   // <-- CORREGIDO: de 'agotado' a 'agotadas'
-      fewLeft: t.quedan_pocas || false, // <-- CORREGIDO: de 'fewLeft' a 'quedan_pocas'
+      isAvailable: !t.agotadas,
+      isSoldOut: t.agotadas,
+      fewLeft: t.quedan_pocas || false,
       restrictions: t.restricciones,
-      purchaseUrl: t.link_compra, // <-- AÑADIDO
+      purchaseUrl: t.url_compra || '',
     }));
 
-    // 3. Procesar y añadir la Party
     const party: Party = {
       id: `p${index + 1}`,
       venueId: venue.id,
@@ -70,202 +164,149 @@ const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } =>
       endTime: eventoData.hora_fin,
       price: Math.min(...ticketTypes.map(t => t.price).filter(p => p > 0), Infinity),
       imageUrl: eventoData.imagen_url || venue.imageUrl,
-      ticketUrl: eventoData.url_entradas || '', // <-- AÑADIDO: Valor por defecto
+      ticketUrl: eventoData.url_evento || '',
       isAvailable: ticketTypes.some(t => t.isAvailable),
-      fewLeft: ticketTypes.some(t => t.fewLeft && t.isAvailable), // <-- AÑADIDO
+      fewLeft: ticketTypes.some(t => t.fewLeft && t.isAvailable),
       capacity: eventoData.aforo || 500,
       soldTickets: eventoData.entradas_vendidas || 0,
       tags: eventoData.tags || ['Fiestas'],
       venueAddress: venue.address,
       ticketTypes: ticketTypes,
+      ageMinimum: eventoData.edad_minima || 18,
+      dressCode: eventoData.codigo_vestimenta || '',
     };
     parties.push(party);
   });
 
   return { venues, parties };
-};
+}
 
 
 class ApiService {
-  private cache = new Map<string, { data: any; timestamp: number; lastUpdateDate: string }>();
-  private readonly UPDATE_HOUR = 20; // 20:30 Madrid
-  private readonly UPDATE_MINUTE = 30;
+  private cache: { venues: Venue[], parties: Party[] } | null = null;
+  private unsubscribe: (() => void) | null = null;
+  private listeners: ((data: { venues: Venue[], parties: Party[] }) => void)[] = [];
 
-  // Obtener la fecha/hora actual en zona horaria de Madrid
-  private getMadridTime(): Date {
-    return new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Madrid"}));
-  }
-
-  // Verificar si necesitamos hacer una nueva petición
-  private shouldFetchNewData(): boolean {
-    const madridTime = this.getMadridTime();
-    const currentHour = madridTime.getHours();
-    const currentMinute = madridTime.getMinutes();
-    const currentDate = madridTime.toDateString();
-
-    // Obtener información del caché
-    const cached = this.cache.get(API_BASE_URL);
-    
-    // Si no hay caché, necesitamos datos
-    if (!cached) {
-      // Solo si ya es después de las 20:30
-      const shouldFetch = currentHour > this.UPDATE_HOUR || 
-             (currentHour === this.UPDATE_HOUR && currentMinute >= this.UPDATE_MINUTE);
-      return shouldFetch;
-    }
-
-    // Si ya tenemos datos de hoy después de las 20:30, no necesitamos más
-    if (cached.lastUpdateDate === currentDate) {
-      return false;
-    }
-
-    // Si es un día nuevo y ya es después de las 20:30
-    const shouldFetch = currentHour > this.UPDATE_HOUR || 
-           (currentHour === this.UPDATE_HOUR && currentMinute >= this.UPDATE_MINUTE);
-    return shouldFetch;
-  }
-
-  // Verificar si hay datos válidos en caché (aunque sean del día anterior)
-  private hasValidCachedData(): boolean {
-    const cached = this.cache.get(API_BASE_URL);
-    return cached != null && cached.data != null;
-  }
-
-  private getCachedData<T>(key: string): T | null {
-    const cached = this.cache.get(key);
-    if (cached && cached.data) {
-      return cached.data;
-    }
-    return null;
-  }
-
-  private setCachedData(key: string, data: any): void {
-    const madridTime = this.getMadridTime();
-    this.cache.set(key, { 
-      data, 
-      timestamp: Date.now(),
-      lastUpdateDate: madridTime.toDateString()
-    });
-  }
-
-  public clearCache(): void {
-    this.cache.clear();
-  }
-
-  // Obtener información sobre cuándo será la próxima actualización
-  public getNextUpdateInfo(): { nextUpdate: Date; hasNewDataAvailable: boolean; usingCacheFrom: string | null } {
-    const madridTime = this.getMadridTime();
-    const today = new Date(madridTime);
-    const tomorrow = new Date(madridTime);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Calcular próxima actualización
-    let nextUpdate: Date;
-    if (madridTime.getHours() < this.UPDATE_HOUR || 
-        (madridTime.getHours() === this.UPDATE_HOUR && madridTime.getMinutes() < this.UPDATE_MINUTE)) {
-      // Hoy a las 20:30
-      nextUpdate = new Date(today.setHours(this.UPDATE_HOUR, this.UPDATE_MINUTE, 0, 0));
-    } else {
-      // Mañana a las 20:30
-      nextUpdate = new Date(tomorrow.setHours(this.UPDATE_HOUR, this.UPDATE_MINUTE, 0, 0));
-    }
-
-    const cached = this.cache.get(API_BASE_URL);
-    const hasNewDataAvailable = this.shouldFetchNewData();
-    const usingCacheFrom = cached ? new Date(cached.timestamp).toLocaleDateString('es-ES') : null;
-
-    return { nextUpdate, hasNewDataAvailable, usingCacheFrom };
-  }
-
-  private async makeRequest<T>(forceRequest: boolean = false): Promise<ApiResponse<T>> {
-    const cacheKey = API_BASE_URL;
-    
-    // Siempre intentar usar datos en caché primero si están disponibles
-    if (this.hasValidCachedData() && !forceRequest) {
-      const cachedData = this.getCachedData<ApiResponse<T>>(cacheKey);
-      if (cachedData) {
-        return cachedData;
-      }
-    }
-
-    // Permitir la primera carga de datos siempre, luego aplicar restricción de horario
-    const isFirstLoad = !this.hasValidCachedData();
-    const shouldFetch = forceRequest || isFirstLoad || this.shouldFetchNewData();
-    
-    if (!shouldFetch) {
-      // Si no es momento de hacer petición y ya hay caché, usar el caché
-      if (this.hasValidCachedData()) {
-        const cachedData = this.getCachedData<ApiResponse<T>>(cacheKey);
-        if (cachedData) {
-          return cachedData;
-        }
-      }
-      
-      // Si no hay caché y no es momento, devolver vacío
-      return {
-        success: true,
-        data: { venues: [], parties: [] } as T,
-      };
+  /**
+   * Obtiene los datos de Firebase con actualización en tiempo real
+   */
+  async getCompleteData(): Promise<ApiResponse<{ venues: Venue[], parties: Party[] }>> {
+    // Si hay caché, devolverlo inmediatamente
+    if (this.cache) {
+      return { success: true, data: this.cache };
     }
 
     try {
-      const config: RequestInit = {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Master-Key': API_MASTER_KEY,
-        },
-      };
-
-      const response = await fetch(API_BASE_URL, config);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      // Transformar los datos crudos al formato que la app espera
-      const transformedData = transformData(data.record);
-
-      const result: ApiResponse<T> = {
-        success: true,
-        data: transformedData as any,
-      };
-
-      // Cachear la respuesta exitosa
-      this.setCachedData(cacheKey, result);
-
-      return result;
-    } catch (error) {
-      console.error('API Error:', error);
-      
-      // Si hay error pero tenemos datos en caché, usarlos silenciosamente
-      if (this.hasValidCachedData()) {
-        const cachedData = this.getCachedData<ApiResponse<T>>(cacheKey);
-        if (cachedData) {
-          return cachedData;
+      if (USE_FIREBASE) {
+        // Obtener datos de Firebase
+        const eventos = await getEventos();
+        
+        if (eventos.length > 0) {
+          const data = transformFirebaseData(eventos);
+          this.cache = data;
+          return { success: true, data };
         }
       }
 
-      // Si no hay caché, devolver datos vacíos (no error al usuario)
-      return {
-        success: true,
-        data: { venues: [], parties: [] } as T,
-      };
+      // Fallback a API local o JSONBin
+      return this.fetchFromFallback();
+
+    } catch (error) {
+      console.error('Error obteniendo datos:', error);
+      
+      // Intentar fallback
+      return this.fetchFromFallback();
     }
   }
 
-  // Obtener datos completos (venues + parties)
-  async getCompleteData(): Promise<ApiResponse<{ venues: Venue[], parties: Party[] }>> {
-    return this.makeRequest<{ venues: Venue[], parties: Party[] }>();
+  /**
+   * Fallback a fuentes alternativas
+   */
+  private async fetchFromFallback(): Promise<ApiResponse<{ venues: Venue[], parties: Party[] }>> {
+    try {
+      // Intentar API local primero
+      const localResponse = await fetch(LOCAL_API_URL);
+      if (localResponse.ok) {
+        const localData = await localResponse.json();
+        if (localData.data && localData.data.length > 0) {
+          const data = transformLegacyData(localData.data);
+          this.cache = data;
+          return { success: true, data };
+        }
+      }
+    } catch (e) {
+      // API local no disponible
+    }
+
+    try {
+      // Intentar JSONBin
+      const jsonbinResponse = await fetch(JSONBIN_URL, {
+        headers: { 'X-Master-Key': JSONBIN_KEY },
+      });
+      if (jsonbinResponse.ok) {
+        const jsonbinData = await jsonbinResponse.json();
+        if (jsonbinData.record) {
+          const data = transformLegacyData(jsonbinData.record);
+          this.cache = data;
+          return { success: true, data };
+        }
+      }
+    } catch (e) {
+      // JSONBin no disponible
+    }
+
+    // Sin datos disponibles
+    return {
+      success: true,
+      data: { venues: [], parties: [] },
+    };
   }
 
-  // Forzar obtención de datos frescos (solo si es después de las 20:30)
-  async getFreshData(): Promise<ApiResponse<{ venues: Venue[], parties: Party[] }>> {
-    // Intentar obtener datos frescos, pero si no es momento, usar caché
-    return this.makeRequest<{ venues: Venue[], parties: Party[] }>(this.shouldFetchNewData());
+  /**
+   * Suscribe a actualizaciones en tiempo real de Firebase
+   */
+  subscribeToUpdates(callback: (data: { venues: Venue[], parties: Party[] }) => void): () => void {
+    this.listeners.push(callback);
+
+    // Si ya hay suscripción activa, no crear otra
+    if (this.unsubscribe) {
+      // Enviar datos en caché si existen
+      if (this.cache) {
+        callback(this.cache);
+      }
+      return () => {
+        this.listeners = this.listeners.filter(l => l !== callback);
+      };
+    }
+
+    // Crear suscripción a Firebase
+    if (USE_FIREBASE) {
+      this.unsubscribe = subscribeToEventos((eventos) => {
+        const data = transformFirebaseData(eventos);
+        this.cache = data;
+        
+        // Notificar a todos los listeners
+        this.listeners.forEach(listener => listener(data));
+      });
+    }
+
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== callback);
+      
+      // Si no quedan listeners, cancelar suscripción
+      if (this.listeners.length === 0 && this.unsubscribe) {
+        this.unsubscribe();
+        this.unsubscribe = null;
+      }
+    };
+  }
+
+  /**
+   * Limpia la caché
+   */
+  clearCache(): void {
+    this.cache = null;
   }
 }
 
-export const apiService = new ApiService(); 
+export const apiService = new ApiService();
