@@ -54,7 +54,9 @@ jobs:
         if: always()
         with:
           name: scraped-data-${{ github.run_number }}
-          path: backend/data/*.json
+          path: |
+            backend/data/*.json
+            backend/data/*.html
           retention-days: 7
 
   notify-on-failure:

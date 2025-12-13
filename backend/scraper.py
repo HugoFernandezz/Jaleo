@@ -56,6 +56,7 @@ async def scrape_single_venue(url: str, browser) -> List[Dict]:
         print("⏳ Resolviendo challenge de Cloudflare...")
         
         # Esperar hasta que pase el challenge
+        challenge_resolved = False
         for i in range(60):
             await asyncio.sleep(1)
             try:
@@ -63,22 +64,34 @@ async def scrape_single_venue(url: str, browser) -> List[Dict]:
             except:
                 title = ""
             
-            # Verificar si pasó el challenge
-            if title and "momento" not in title.lower() and "checking" not in title.lower():
-                print(f"✅ Challenge resuelto! ({i}s)")
-                break
+            # Verificar si pasó el challenge (título válido y no es página de espera)
+            if title and "momento" not in title.lower() and "checking" not in title.lower() and "just" not in title.lower():
+                # Verificar que no sea una página vacía
+                try:
+                    body_length = await page.evaluate("document.body.innerHTML.length")
+                    if body_length > 1000:  # La página debe tener contenido sustancial
+                        print(f"✅ Challenge resuelto! ({i}s) - Título: {title[:50]}")
+                        challenge_resolved = True
+                        break
+                except:
+                    pass
             
             if i % 15 == 0 and i > 0:
-                print(f"   Esperando... ({i}s)")
-        else:
+                print(f"   Esperando... ({i}s) - Título actual: {title[:30] if title else 'N/A'}")
+        
+        if not challenge_resolved:
             print("⚠️ Timeout esperando Cloudflare")
             return []
         
-        # Esperar carga de Angular
-        await asyncio.sleep(4)
+        # Esperar más tiempo para que Angular cargue completamente
+        print("   Esperando carga de Angular...")
+        await asyncio.sleep(8)
         
         # Obtener HTML
         html = await page.get_content()
+        
+        # Debug: mostrar tamaño del HTML
+        print(f"   HTML recibido: {len(html)} bytes")
         
         # Extraer eventos del JSON embebido
         events = extract_events_from_html(html)
@@ -87,6 +100,15 @@ async def scrape_single_venue(url: str, browser) -> List[Dict]:
             print(f"✅ {len(events)} eventos encontrados en {url}")
         else:
             print(f"⚠️ No se encontraron eventos en {url}")
+            # Guardar HTML para debugging
+            venue_name = url.split('/')[-2]
+            debug_file = f"data/debug_{venue_name}.html"
+            try:
+                with open(debug_file, 'w', encoding='utf-8') as f:
+                    f.write(html)
+                print(f"   Debug: HTML guardado en {debug_file}")
+            except Exception as e:
+                print(f"   No se pudo guardar debug: {e}")
             
         return events
         
