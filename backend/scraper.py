@@ -268,6 +268,10 @@ def get_chromium_path() -> Optional[str]:
         return None
     
     # En Linux, verificar si Playwright Chromium está instalado
+    if platform.system() == 'Linux':
+        try:
+            home = os.path.expanduser("~")
+            pw_cache = os.path.join(home, ".cache", "ms-playwright")
             if os.path.exists(pw_cache):
                 for item in os.listdir(pw_cache):
                     if item.startswith("chromium-"):
