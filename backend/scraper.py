@@ -33,7 +33,8 @@ if sys.platform == 'win32':
 # URLs de las discotecas a scrapear
 VENUE_URLS = [
     "https://site.fourvenues.com/es/luminata-disco/events",
-    "https://site.fourvenues.com/es/el-club-by-odiseo/events"
+    "https://site.fourvenues.com/es/el-club-by-odiseo/events",
+    "https://site.fourvenues.com/es/dodo-club/events"
 ]
 
 
@@ -65,7 +66,7 @@ async def scrape_single_venue(url: str, browser) -> List[Dict]:
                 title = ""
             
             # Verificar si pasó el challenge (título válido y no es página de espera)
-            if title and "momento" not in title.lower() and "checking" not in title.lower() and "just" not in title.lower():
+            if title and "momento" not in title.lower() and "checking" not in title.lower() and "just" not in title.lower() and "hang" not in title.lower() and "wait" not in title.lower() and "sec" not in title.lower():
                 # Verificar que no sea una página vacía
                 try:
                     body_length = await page.evaluate("document.body.innerHTML.length")
@@ -84,8 +85,9 @@ async def scrape_single_venue(url: str, browser) -> List[Dict]:
             return []
         
         # Esperar más tiempo para que Angular cargue completamente
+        # Aumentado para dispositivos lentos (Raspberry Pi)
         print("   Esperando carga de Angular...")
-        await asyncio.sleep(8)
+        await asyncio.sleep(20)
         
         # Obtener HTML
         html = await page.get_content()
@@ -152,8 +154,8 @@ async def scrape_event_details(event_url: str, org_slug: str, event_slug: str, e
             if title and "momento" not in title.lower() and "checking" not in title.lower():
                 break
         
-        # Esperar carga de Angular
-        await asyncio.sleep(3)
+        # Esperar carga de Angular (aumentado para Raspberry Pi)
+        await asyncio.sleep(5)
         
         # Obtener HTML
         html = await page.get_content()
@@ -251,16 +253,36 @@ def extract_events_from_html(html: str) -> List[Dict]:
 
 
 def get_chromium_path() -> Optional[str]:
-    """Busca el ejecutable de Chromium según el sistema operativo."""
+    """
+    Busca el ejecutable de Chromium según el sistema operativo.
+    
+    IMPORTANTE: Si Playwright está instalado, devuelve None para que 
+    nodriver use automáticamente Playwright's Chromium interno.
+    """
     import platform
     
+    # En Linux/CI, primero verificar si Playwright Chromium está instalado
+    # Si lo está, devolver None para que nodriver lo use automáticamente
     if platform.system() == 'Linux':
-        # Raspberry Pi / Linux - buscar Chromium del sistema
+        try:
+            home = os.path.expanduser("~")
+            pw_cache = os.path.join(home, ".cache", "ms-playwright")
+            if os.path.exists(pw_cache):
+                for item in os.listdir(pw_cache):
+                    if item.startswith("chromium-"):
+                        pw_chrome = os.path.join(pw_cache, item, "chrome-linux", "chrome")
+                        if os.path.exists(pw_chrome):
+                            print(f"   [INFO] Playwright Chromium encontrado, usando automáticamente")
+                            return None  # nodriver usará Playwright automáticamente
+        except:
+            pass
+        
+        # Si no hay Playwright, buscar en sistema
         linux_paths = [
-            '/usr/bin/chromium-browser',  # Raspberry Pi OS / Debian
-            '/usr/bin/chromium',           # Algunas distros
-            '/usr/bin/google-chrome',      # Chrome instalado
-            '/snap/bin/chromium',          # Snap
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chromium',
+            '/usr/bin/google-chrome',
+            '/snap/bin/chromium',
         ]
         for path in linux_paths:
             if os.path.exists(path):
@@ -302,6 +324,124 @@ def get_chromium_path() -> Optional[str]:
     return None
 
 
+async def start_browser_with_retry(chrome_path: Optional[str], max_retries: int = 3) -> tuple:
+    """
+    Inicia el navegador con reintentos y backoff exponencial.
+    Específicamente diseñado para manejar la lentitud de ARM64/Raspberry Pi.
+    
+    Args:
+        chrome_path: Ruta al ejecutable de Chromium
+        max_retries: Número máximo de reintentos
+    
+    Returns:
+        tuple: (browser, success)
+    """
+    import platform
+    import tempfile
+    import shutil
+    
+    is_arm = platform.machine().lower() in ('aarch64', 'arm64', 'armv7l')
+    
+    # Crear directorio dedicado para el perfil de usuario
+    user_data_dir = os.path.join(tempfile.gettempdir(), 'nodriver_profile_partyfinder')
+    
+    # Limpiar directorio de perfil previo si existe (evita conflictos)
+    if os.path.exists(user_data_dir):
+        try:
+            shutil.rmtree(user_data_dir)
+        except:
+            pass
+    
+    # Argumentos base para el navegador
+    base_args = [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-setuid-sandbox',
+        '--disable-extensions',
+        '--disable-plugins',
+        '--window-size=1920,1080',
+        '--no-first-run',
+        '--no-default-browser-check',
+    ]
+    
+    # Argumentos adicionales para ARM64 (Raspberry Pi)
+    # NOTA: --single-process causa problemas de conexión, no usar
+    if is_arm:
+        base_args.extend([
+            '--disable-accelerated-2d-canvas',
+            '--disable-software-rasterizer',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--memory-pressure-off',  # Desactiva gestión de memoria agresiva
+        ])
+        print(f"   [INFO] Detectado ARM64 - usando configuración optimizada para Raspberry Pi")
+    
+    for attempt in range(max_retries):
+        try:
+            wait_time = 3 * (attempt + 1)  # 3s, 6s, 9s - más tiempo en ARM
+            
+            if attempt > 0:
+                print(f"   ⏳ Reintento {attempt + 1}/{max_retries} (esperando {wait_time}s)...")
+                await asyncio.sleep(wait_time)
+                
+                # Limpiar procesos zombie de Chrome/Chromium en ARM
+                if is_arm:
+                    try:
+                        os.system("pkill -9 -f 'chrome.*--remote-debugging' 2>/dev/null")
+                        await asyncio.sleep(1)
+                    except:
+                        pass
+            
+            # Usar puerto fijo para evitar problemas de detección
+            debug_port = 9222 + attempt  # 9222, 9223, 9224 por si hay conflictos
+            
+            print(f"   [INFO] Intentando puerto {debug_port}...")
+            
+            if chrome_path:
+                print(f"   Usando Chromium: {chrome_path}")
+                browser = await uc.start(
+                    headless=False,  # Con Xvfb, headless=False funciona mejor
+                    browser_executable_path=chrome_path,
+                    browser_args=base_args,
+                    user_data_dir=user_data_dir,
+                    port=debug_port,
+                    sandbox=False,  # CRÍTICO para Linux/Raspberry Pi
+                )
+            else:
+                print("   Usando Chrome del sistema...")
+                browser = await uc.start(
+                    headless=True,
+                    browser_args=base_args,
+                    user_data_dir=user_data_dir,
+                    port=debug_port,
+                    sandbox=False,  # CRÍTICO para Linux/Raspberry Pi
+                )
+            
+            # Espera adicional en ARM para asegurar que el navegador está listo
+            if is_arm:
+                print("   [INFO] Esperando estabilización del navegador en ARM (5s)...")
+                await asyncio.sleep(5)
+            else:
+                await asyncio.sleep(1)
+            
+            print("   ✅ Conexión establecida con el navegador")
+            return browser, True
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"   ⚠️ Intento {attempt + 1} fallido: {type(e).__name__}: {error_msg[:100]}")
+            
+            # Si es el último intento, lanzar excepción con contexto
+            if attempt == max_retries - 1:
+                raise Exception(f"No se pudo conectar al navegador después de {max_retries} intentos. Último error: {error_msg}")
+    
+    return None, False
+
+
+
 async def scrape_all_events(urls: List[str] = None, scrape_tickets: bool = True) -> List[Dict]:
     """
     Scrapea eventos de todas las URLs configuradas.
@@ -318,31 +458,37 @@ async def scrape_all_events(urls: List[str] = None, scrape_tickets: bool = True)
     
     print("🚀 Iniciando navegador...")
     
+    # Debug logging
+    import json as _json
+    _log_path = os.path.expanduser("~/PartyFinder/debug.log")
+    def _debug_log(hyp, msg, data=None):
+        try:
+            with open(_log_path, "a") as f:
+                f.write(_json.dumps({"hypothesisId": hyp, "message": msg, "data": data, "timestamp": __import__('time').time()}) + "\n")
+        except: pass
+    
     try:
         chrome_path = get_chromium_path()
+        _debug_log("INIT", "Starting browser", {"chrome_path": chrome_path})
         
-        if chrome_path:
-            print(f"   Usando Chromium: {chrome_path}")
-            browser = await uc.start(
-                headless=False,
-                browser_executable_path=chrome_path,
-                browser_args=['--no-sandbox', '--disable-dev-shm-usage']
-            )
-        else:
-            print("   Usando Chrome del sistema...")
-            browser = await uc.start(
-                headless=False,
-                browser_args=['--no-sandbox', '--disable-dev-shm-usage']
-            )
+        # Iniciar navegador con reintentos
+        browser, success = await start_browser_with_retry(chrome_path, max_retries=3)
+        
+        if not success or browser is None:
+            print("❌ No se pudo iniciar el navegador después de varios intentos")
+            return []
+        
+        _debug_log("SUCCESS", "Browser started successfully!")
+        print("   ✅ Navegador iniciado correctamente")
         
         # Scrapear cada URL de venue
         for url in target_urls:
             events = await scrape_single_venue(url, browser)
             all_events.extend(events)
             
-            # Pequeña pausa entre venues
+            # Pausa entre venues (aumentada para evitar detección)
             if url != target_urls[-1]:
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)
         
         # Si se solicita, scrapear detalles de cada evento (tickets + info)
         if scrape_tickets and all_events:
@@ -365,8 +511,8 @@ async def scrape_all_events(urls: List[str] = None, scrape_tickets: bool = True)
                     event['_scraped_tickets'] = details.get('tickets', [])
                     event['_scraped_event_info'] = details.get('event_info')
                     
-                    # Pequeña pausa entre eventos
-                    await asyncio.sleep(1)
+                    # Pausa entre eventos (aumentada para evitar rate limiting)
+                    await asyncio.sleep(2)
         
         browser.stop()
         
@@ -384,6 +530,10 @@ Soluciones:
 """)
         return []
     except Exception as e:
+        import traceback as _tb
+        _full_error = _tb.format_exc()
+        _debug_log("ERROR", "Exception caught", {"type": type(e).__name__, "message": str(e), "traceback": _full_error})
+        print(f"   [DEBUG] Full traceback:\n{_full_error}")
         print(f"💥 Error general: {type(e).__name__}: {e}")
         return []
     
@@ -485,10 +635,24 @@ def transform_to_app_format(events: List[Dict]) -> List[Dict]:
                 except:
                     price = 0
                 
+                # Extraer descripción de options (FourVenues la guarda ahí)
+                options = ticket.get('options', [])
+                descripcion = ''
+                info_adicional = ''
+                if options and len(options) > 0:
+                    first_option = options[0]
+                    descripcion = first_option.get('content', '')
+                    info_adicional = first_option.get('additionalInfo', '')
+                
+                # Combinar descripción e info adicional si existen
+                descripcion_completa = descripcion
+                if info_adicional:
+                    descripcion_completa = f"{descripcion}\n{info_adicional}".strip() if descripcion else info_adicional
+                
                 entrada = {
                     "id": ticket.get('id', ''),
                     "tipo": ticket.get('name', 'Entrada General'),
-                    "descripcion": ticket.get('description', ''),
+                    "descripcion": descripcion_completa,
                     "precio": str(price),
                     "precio_completo": ticket.get('priceComplete', ''),
                     "agotadas": ticket.get('isSoldOut', False),
