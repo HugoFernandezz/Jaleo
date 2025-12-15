@@ -64,19 +64,22 @@ async def scrape_with_playwright():
     print("🚀 Iniciando Playwright...")
     
     async with async_playwright() as p:
+        # headless=False con Xvfb puede bypass Cloudflare
         browser = await p.chromium.launch(
-            headless=True,
+            headless=False,  # IMPORTANTE: False para evitar detección
             args=[
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
             ]
         )
         
         context = await browser.new_context(
             user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080},
+            locale='es-ES',
         )
         
         for url in VENUE_URLS:
@@ -88,16 +91,24 @@ async def scrape_with_playwright():
                 
                 # Esperar Cloudflare
                 print("   ⏳ Esperando Cloudflare...")
+                challenge_passed = False
                 for i in range(60):
                     await asyncio.sleep(1)
                     title = await page.title()
-                    if title and 'moment' not in title.lower() and 'wait' not in title.lower():
+                    
+                    # Debug: mostrar título actual
+                    if i % 10 == 0:
+                        print(f"      [{i}s] Título: {title[:40] if title else 'N/A'}")
+                    
+                    if title and 'moment' not in title.lower() and 'wait' not in title.lower() and 'checking' not in title.lower():
                         body_len = await page.evaluate("document.body.innerHTML.length")
                         if body_len > 1000:
-                            print(f"   ✅ Challenge pasado en {i}s")
+                            print(f"   ✅ Challenge pasado en {i}s - Título: {title[:30]}")
+                            challenge_passed = True
                             break
-                    if i % 15 == 0 and i > 0:
-                        print(f"      Esperando... ({i}s)")
+                
+                if not challenge_passed:
+                    print(f"   ⚠️ Timeout Cloudflare - Título final: {title[:40] if title else 'N/A'}")
                 
                 # Esperar Angular
                 await asyncio.sleep(15)
