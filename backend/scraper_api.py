@@ -37,15 +37,15 @@ def fetch_with_scrapingbee(url: str, api_key: str) -> str:
         'api_key': api_key,
         'url': url,
         'render_js': 'true',  # Renderizar JavaScript (Angular)
-        'premium_proxy': 'true',  # Proxy premium para bypass de Cloudflare
-        'country_code': 'es',  # IP española
-        'wait': '10000',  # Esperar 10s para Angular
+        'block_resources': 'false',  # NO bloquear recursos
+        'wait': '15000',  # Esperar 15s para Angular
+        'wait_for': '#app',  # Esperar elemento Angular
     }
     
     response = requests.get(
         'https://app.scrapingbee.com/api/v1/',
         params=params,
-        timeout=60
+        timeout=90
     )
     
     if response.status_code == 200:
