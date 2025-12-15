@@ -71,10 +71,10 @@ jobs:
           # Verificar display
           echo "Display: $DISPLAY"
           
-          # Ejecutar scraper con verbose output
+          # Ejecutar scraper CI (usa Playwright directamente, no nodriver)
           cd backend
-          echo "Ejecutando scraper..."
-          python -u scraper.py --firebase 2>&1 | tee ../scraper_output.log
+          echo "Ejecutando scraper CI..."
+          python -u scraper_ci.py --firebase 2>&1 | tee ../scraper_output.log
           
           # Verificar resultado
           if [ -f data/events.json ]; then
