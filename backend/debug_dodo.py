@@ -8,7 +8,7 @@ Extrae el HTML de Dodo Club para ver por qué no se detectan eventos.
 from firecrawl import Firecrawl
 import os
 
-API_KEY = "fc-01b71fac5e7e4b4e8ebf35fd754e4be6"
+API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 DODO_URL = "https://site.fourvenues.com/es/dodo-club/events"
 
 def investigate_dodo():

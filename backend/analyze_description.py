@@ -9,7 +9,8 @@ from bs4 import BeautifulSoup
 import re
 import json
 
-API_KEY = "fc-01b71fac5e7e4b4e8ebf35fd754e4be6"
+import os
+API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 
 # URL de un evento específico
 EVENT_URL = "https://site.fourvenues.com/es/luminata-disco/events/59QH"

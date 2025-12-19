@@ -8,7 +8,8 @@ from firecrawl import Firecrawl
 from bs4 import BeautifulSoup
 import re
 
-API_KEY = "fc-01b71fac5e7e4b4e8ebf35fd754e4be6"
+import os
+API_KEY = os.getenv("FIRECRAWL_API_KEY")
 
 # URL de evento con entradas disponibles
 EVENT_URL = "https://site.fourvenues.com/es/luminata-disco/events/sabado-reggaetoncomercial-20-12-2025-IULK"

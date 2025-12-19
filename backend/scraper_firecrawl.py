@@ -31,7 +31,11 @@ except ImportError:
     sys.exit(1)
 
 # Configuración
-API_KEY = os.environ.get("FIRECRAWL_API_KEY", "fc-01b71fac5e7e4b4e8ebf35fd754e4be6")
+API_KEY = os.environ.get("FIRECRAWL_API_KEY")
+if not API_KEY:
+    print("⚠️ Faltan credenciales: FIRECRAWL_API_KEY")
+    # No fallar inmediatamente, permitir que el script intente otras cosas o falle más adelante si es crítico
+
 DATA_DIR = Path(__file__).parent / "data"
 
 # URLs de las discotecas a scrapear
