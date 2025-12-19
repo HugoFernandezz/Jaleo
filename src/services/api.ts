@@ -9,6 +9,42 @@ const API_BASE_URL = 'http://localhost:5000/api/events';
 // Cambia a true si quieres que la APP intente buscar un servidor local antes que en Firebase
 const USE_LOCAL_BACKEND = false;
 
+// CONFIGURACIÓN: Alias para unificar nombres de discotecas
+const VENUE_ALIASES: { [key: string]: string } = {
+  "Luminata Disco": "Luminata",
+  "LUMINATA": "Luminata",
+  "DODO CLUB": "Dodo Club",
+  "Dodo club": "Dodo Club",
+  "OW CLUB": "OW Club",
+  "Ow Club": "OW Club",
+  // Añadir más alias aquí según se detecten
+};
+
+const normalizeVenueName = (rawName: string): string => {
+  if (!rawName) return '';
+  const trimmed = rawName.trim();
+
+  // 1. Buscar coincidencia exacta en alias
+  if (VENUE_ALIASES[trimmed]) {
+    return VENUE_ALIASES[trimmed];
+  }
+
+  // 2. Buscar coincidencia insensible a mayúsculas/minúsculas en alias keys
+  const lowerTrimmed = trimmed.toLowerCase();
+  const aliasKey = Object.keys(VENUE_ALIASES).find(k => k.toLowerCase() === lowerTrimmed);
+  if (aliasKey) {
+    return VENUE_ALIASES[aliasKey];
+  }
+
+  // 3. Normalización básica de capitalización (Opcional, pero ayuda con "DODO CLUB" -> "Dodo Club" si no está en alias)
+  // Si está TODO EN MAYÚSCULAS o todo en minúsculas, intentar Title Case
+  if (trimmed === trimmed.toUpperCase() || trimmed === trimmed.toLowerCase()) {
+    return trimmed.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  }
+
+  return trimmed;
+};
+
 // Función para transformar los datos de la API al formato que la app espera
 const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } => {
   const venues: Venue[] = [];
@@ -25,12 +61,14 @@ const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } =>
       return;
     }
 
+    const normalizedVenueName = normalizeVenueName(lugarData.nombre);
+
     // 1. Procesar y añadir el Venue (si no existe ya)
-    let venue: Venue | undefined = venues.find(v => v.name === lugarData.nombre);
+    let venue: Venue | undefined = venues.find(v => v.name === normalizedVenueName);
     if (!venue) {
       venue = {
         id: `v${venues.length + 1}`,
-        name: lugarData.nombre,
+        name: normalizedVenueName,
         description: lugarData.descripcion || `Eventos en ${lugarData.nombre}`,
         address: lugarData.direccion || lugarData.direccion_corta || '',
         imageUrl: lugarData.imagen_url || 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?w=800&h=600&fit=crop&crop=center',

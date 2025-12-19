@@ -12,6 +12,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Party, TicketType } from '../types';
+import { RootStackParamList } from '../components/Navigation';
+import { RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -27,6 +31,7 @@ interface EventDetailScreenProps {
 export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, navigation }) => {
   const { party } = route.params;
   const [imageError, setImageError] = useState(false);
+  const { colors, isDark } = useTheme();
 
   // Formatear fecha
   const formatDate = (dateString: string) => {
@@ -68,6 +73,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
         key={ticket.id || index}
         style={[
           styles.ticketCard,
+          { backgroundColor: colors.surface, borderColor: colors.border },
           isSoldOut && styles.ticketCardSoldOut
         ]}
       >
@@ -77,6 +83,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
             <Text
               style={[
                 styles.ticketName,
+                { color: colors.text },
                 isSoldOut && styles.ticketNameSoldOut
               ]}
               numberOfLines={2}
@@ -93,7 +100,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
 
           {/* Descripción si existe */}
           {ticket.description ? (
-            <Text style={styles.ticketDescription} numberOfLines={2}>
+            <Text style={[styles.ticketDescription, { color: colors.textSecondary }]} numberOfLines={2}>
               {ticket.description}
             </Text>
           ) : null}
@@ -103,6 +110,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
             <View style={styles.priceContainer}>
               <Text style={[
                 styles.ticketPrice,
+                { color: colors.text },
                 isSoldOut && styles.ticketPriceSoldOut
               ]}>
                 {isSoldOut ? 'Agotado' : (ticket.price === 0 ? 'Gratis' : `${ticket.price}€`)}
@@ -113,12 +121,13 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
               <TouchableOpacity
                 style={[
                   styles.buyButton,
+                  { backgroundColor: colors.primary },
                   hasFewLeft && styles.buyButtonFewLeft
                 ]}
                 onPress={() => handleBuyTicket(ticket)}
               >
-                <Text style={styles.buyButtonText}>Comprar</Text>
-                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                <Text style={[styles.buyButtonText, { color: isDark ? colors.background : colors.surface }]}>Comprar</Text>
+                <Ionicons name="arrow-forward" size={16} color={isDark ? colors.background : colors.surface} />
               </TouchableOpacity>
             )}
           </View>
@@ -128,7 +137,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         bounces={false}
@@ -147,45 +156,44 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
 
           {/* Botón volver */}
           <TouchableOpacity
-            style={styles.backButton}
+            style={[styles.backButton, { backgroundColor: colors.surface }]}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="chevron-back" size={24} color="#1F2937" />
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
           </TouchableOpacity>
 
-          {/* Gradient overlay */}
-          <View style={styles.imageGradient} />
+          {/* Gradient overlay logic could be here */}
         </View>
 
         {/* Contenido */}
-        <View style={styles.content}>
+        <View style={[styles.content, { backgroundColor: colors.background }]}>
           {/* Título y venue */}
           <View style={styles.titleSection}>
-            <Text style={styles.title}>{party.title}</Text>
-            <Text style={styles.venue}>{party.venueName}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{party.title}</Text>
+            <Text style={[styles.venue, { color: colors.textSecondary }]}>{party.venueName}</Text>
           </View>
 
           {/* Info cards */}
           <View style={styles.infoCards}>
             {/* Fecha */}
-            <View style={styles.infoCard}>
-              <View style={styles.infoIconContainer}>
-                <Ionicons name="calendar-outline" size={20} color="#6B7280" />
+            <View style={[styles.infoCard, { backgroundColor: colors.surface }]}>
+              <View style={[styles.infoIconContainer, { backgroundColor: colors.background }]}>
+                <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
               </View>
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Fecha</Text>
-                <Text style={styles.infoValue}>{formatDate(party.date)}</Text>
+                <Text style={[styles.infoValue, { color: colors.text }]}>{formatDate(party.date)}</Text>
               </View>
             </View>
 
             {/* Hora */}
-            <View style={styles.infoCard}>
-              <View style={styles.infoIconContainer}>
-                <Ionicons name="time-outline" size={20} color="#6B7280" />
+            <View style={[styles.infoCard, { backgroundColor: colors.surface }]}>
+              <View style={[styles.infoIconContainer, { backgroundColor: colors.background }]}>
+                <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
               </View>
               <View style={styles.infoContent}>
                 <Text style={styles.infoLabel}>Horario</Text>
-                <Text style={styles.infoValue}>
+                <Text style={[styles.infoValue, { color: colors.text }]}>
                   {party.startTime} - {party.endTime}
                 </Text>
               </View>
@@ -194,25 +202,25 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
             {/* Edad y vestimenta */}
             <View style={styles.infoRow}>
               {party.ageMinimum && (
-                <View style={[styles.infoCard, styles.infoCardHalf]}>
-                  <View style={styles.infoIconContainer}>
-                    <Ionicons name="person-outline" size={20} color="#6B7280" />
+                <View style={[styles.infoCard, styles.infoCardHalf, { backgroundColor: colors.surface }]}>
+                  <View style={[styles.infoIconContainer, { backgroundColor: colors.background }]}>
+                    <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
                   </View>
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>Edad</Text>
-                    <Text style={styles.infoValue}>+{party.ageMinimum}</Text>
+                    <Text style={[styles.infoValue, { color: colors.text }]}>+{party.ageMinimum}</Text>
                   </View>
                 </View>
               )}
 
               {party.dressCode && (
-                <View style={[styles.infoCard, styles.infoCardHalf]}>
-                  <View style={styles.infoIconContainer}>
-                    <Ionicons name="shirt-outline" size={20} color="#6B7280" />
+                <View style={[styles.infoCard, styles.infoCardHalf, { backgroundColor: colors.surface }]}>
+                  <View style={[styles.infoIconContainer, { backgroundColor: colors.background }]}>
+                    <Ionicons name="shirt-outline" size={20} color={colors.textSecondary} />
                   </View>
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>Vestimenta</Text>
-                    <Text style={styles.infoValue}>{party.dressCode}</Text>
+                    <Text style={[styles.infoValue, { color: colors.text }]}>{party.dressCode}</Text>
                   </View>
                 </View>
               )}
@@ -220,28 +228,28 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
 
             {/* Ubicación */}
             <TouchableOpacity
-              style={styles.infoCard}
+              style={[styles.infoCard, { backgroundColor: colors.surface }]}
               onPress={handleOpenMaps}
               activeOpacity={0.7}
             >
-              <View style={styles.infoIconContainer}>
-                <Ionicons name="location-outline" size={20} color="#6B7280" />
+              <View style={[styles.infoIconContainer, { backgroundColor: colors.background }]}>
+                <Ionicons name="location-outline" size={20} color={colors.textSecondary} />
               </View>
               <View style={[styles.infoContent, { flex: 1 }]}>
                 <Text style={styles.infoLabel}>Ubicación</Text>
-                <Text style={styles.infoValue} numberOfLines={2}>
+                <Text style={[styles.infoValue, { color: colors.text }]} numberOfLines={2}>
                   {party.venueAddress || party.venueName}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#D1D5DB" />
+              <Ionicons name="chevron-forward" size={20} color={colors.border} />
             </TouchableOpacity>
           </View>
 
           {/* Sección de entradas */}
           {party.ticketTypes && party.ticketTypes.length > 0 && (
             <View style={styles.ticketsSection}>
-              <Text style={styles.sectionTitle}>Entradas</Text>
-              <Text style={styles.sectionSubtitle}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Entradas</Text>
+              <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
                 {party.ticketTypes.filter(t => t.isAvailable).length} tipos disponibles
               </Text>
 
@@ -254,8 +262,8 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
           {/* Descripción */}
           {party.description && (
             <View style={styles.descriptionSection}>
-              <Text style={styles.sectionTitle}>Información</Text>
-              <Text style={styles.description}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Información</Text>
+              <Text style={[styles.description, { color: colors.textSecondary }]}>
                 {party.description}
               </Text>
             </View>
@@ -266,8 +274,8 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
             <View style={styles.tagsSection}>
               <View style={styles.tagsContainer}>
                 {party.tags.map((tag, index) => (
-                  <View key={index} style={styles.tag}>
-                    <Text style={styles.tagText}>{tag}</Text>
+                  <View key={index} style={[styles.tag, { backgroundColor: colors.surface }]}>
+                    <Text style={[styles.tagText, { color: colors.textSecondary }]}>{tag}</Text>
                   </View>
                 ))}
               </View>
@@ -279,67 +287,59 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   );
 };
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   imageContainer: {
-    height: 280,
+    height: 320,
     position: 'relative',
   },
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F3F4F6',
   },
   backButton: {
     position: 'absolute',
     top: 50,
     left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  imageGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 100,
-    backgroundColor: 'transparent',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   content: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    marginTop: -24,
-    paddingTop: 24,
-    paddingHorizontal: 20,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    marginTop: -32,
+    paddingTop: 32,
+    paddingHorizontal: 24,
     paddingBottom: 40,
   },
   titleSection: {
-    marginBottom: 24,
+    marginBottom: 32,
+    alignItems: 'center', // Centrado solicitado
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1F2937',
-    lineHeight: 30,
-    marginBottom: 4,
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 36,
+    marginBottom: 8,
+    textAlign: 'center',
+    letterSpacing: -0.5,
   },
   venue: {
-    fontSize: 15,
-    color: '#6B7280',
+    fontSize: 18,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   infoCards: {
     marginBottom: 32,
@@ -347,104 +347,98 @@ const styles = StyleSheet.create({
   infoCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
   },
   infoCardHalf: {
     flex: 1,
   },
   infoRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   infoIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
   infoContent: {
     flex: 1,
   },
   infoLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#9CA3AF',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginBottom: 2,
   },
   infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 16,
+    fontWeight: '700',
     textTransform: 'capitalize',
   },
   ticketsSection: {
     marginBottom: 32,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
+    fontSize: 22,
+    fontWeight: '800',
     marginBottom: 4,
   },
   sectionSubtitle: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    marginBottom: 16,
+    fontSize: 14,
+    marginBottom: 20,
   },
   ticketsList: {
-    gap: 12,
+    gap: 16,
   },
   ticketCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     overflow: 'hidden',
   },
   ticketCardSoldOut: {
-    backgroundColor: '#F9FAFB',
-    borderColor: '#E5E7EB',
+    opacity: 0.6,
   },
   ticketContent: {
-    padding: 16,
+    padding: 20,
   },
   ticketHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   ticketName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 18,
+    fontWeight: '700',
     flex: 1,
-    marginRight: 8,
+    marginRight: 12,
+    lineHeight: 24,
   },
   ticketNameSoldOut: {
-    color: '#9CA3AF',
+    opacity: 0.5,
   },
   fewLeftBadge: {
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
   fewLeftText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: '#D97706',
   },
   ticketDescription: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-    marginBottom: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
   },
   ticketFooter: {
     flexDirection: 'row',
@@ -455,58 +449,51 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   ticketPrice: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
+    fontSize: 22,
+    fontWeight: '800',
   },
   ticketPriceSoldOut: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '600',
   },
   buyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1F2937',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
+    gap: 8,
   },
   buyButtonFewLeft: {
     backgroundColor: '#F59E0B',
   },
   buyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
   descriptionSection: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   description: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 24,
     marginTop: 12,
   },
   tagsSection: {
-    marginBottom: 16,
+    marginBottom: 24,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   tag: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   tagText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

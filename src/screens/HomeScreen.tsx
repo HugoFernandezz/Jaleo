@@ -17,7 +17,9 @@ import { PartyCard } from '../components/PartyCard';
 import { Party } from '../types';
 import { apiService } from '../services/api';
 import { RootStackParamList } from '../components/Navigation';
+import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useTheme } from '../context/ThemeContext';
 
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -31,7 +33,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedVenue, setSelectedVenue] = useState<string>('Todas');
   const [availableVenues, setAvailableVenues] = useState<string[]>(['Todas']);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showUpdateToast, setShowUpdateToast] = useState(false);
+
   const fadeAnim = useMemo(() => new Animated.Value(0), []);
 
   const triggerUpdateToast = useCallback(() => {
@@ -66,42 +70,69 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    // Extraer venues únicos
-    const allVenues = new Set<string>();
+    // Extraer venues únicos con normalización para evitar duplicados (ej: "Dodo Club" vs "DODO CLUB")
+    const allVenues = new Map<string, string>();
+
     parties.forEach(party => {
       if (party.venueName) {
-        allVenues.add(party.venueName.trim());
+        const rawName = party.venueName.trim();
+        const normalizedKey = rawName.toLowerCase();
+
+        if (!allVenues.has(normalizedKey)) {
+          allVenues.set(normalizedKey, rawName);
+        } else {
+          // Si ya existe, preferimos la versión que NO sea todo mayúsculas (Mixed Case)
+          const currentName = allVenues.get(normalizedKey)!;
+          if (currentName === currentName.toUpperCase() && rawName !== rawName.toUpperCase()) {
+            allVenues.set(normalizedKey, rawName);
+          }
+        }
       }
     });
-    setAvailableVenues(['Todas', ...Array.from(allVenues).sort()]);
+
+    setAvailableVenues(['Todas', ...Array.from(allVenues.values()).sort()]);
   }, [parties]);
 
+  const { colors, toggleTheme, isDark } = useTheme();
+
+  // Generar fechas para el calendario (próximos 30 días)
+  const calendarDates = useMemo(() => {
+    const dates = [];
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    return dates;
+  }, []);
+
   // Filtrar y agrupar eventos
-  const groupedParties = useMemo(() => {
+  const filteredParties = useMemo(() => {
     let filtered = parties;
 
     if (selectedVenue !== 'Todas') {
-      filtered = filtered.filter(party => party.venueName.trim() === selectedVenue);
+      filtered = filtered.filter(party => party.venueName.trim().toLowerCase() === selectedVenue.toLowerCase());
     }
 
-    // Ordenar por fecha
-    filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // Filtrar por fecha seleccionada (si hay una)
+    if (selectedDate) {
+      filtered = filtered.filter(party => party.date === selectedDate);
+    } else {
+      // Si no hay fecha seleccionada ("Todas"), mostrar solo eventos futuros (hoy en adelante)
+      const today = new Date().toISOString().split('T')[0];
+      filtered = filtered.filter(party => party.date >= today);
+    }
 
-    // Agrupar por fecha
-    const groups: { [key: string]: Party[] } = {};
-    filtered.forEach(party => {
-      const dateKey = party.date;
-      if (!groups[dateKey]) {
-        groups[dateKey] = [];
+    // Ordenar: Si es "Todas", por fecha. Si es un día específico, por título/hora.
+    return filtered.sort((a, b) => {
+      if (!selectedDate) {
+        // Ordenar por fecha asc
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
       }
-      groups[dateKey].push(party);
+      return a.title.localeCompare(b.title);
     });
-
-    return Object.entries(groups).map(([date, items]) => ({
-      date,
-      items,
-    }));
-  }, [parties, selectedVenue]);
+  }, [parties, selectedVenue, selectedDate]);
 
   const loadParties = async () => {
     try {
@@ -128,19 +159,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     navigation.navigate('EventDetail', { party });
   }, [navigation]);
 
-  // Formatear fecha para header
   const formatSectionDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const isToday = date.toDateString() === today.toDateString();
-    const isTomorrow = date.toDateString() === tomorrow.toDateString();
-
-    if (isToday) return 'Hoy';
-    if (isTomorrow) return 'Mañana';
-
     const options: Intl.DateTimeFormatOptions = {
       weekday: 'long',
       day: 'numeric',
@@ -149,33 +169,101 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return date.toLocaleDateString('es-ES', options);
   };
 
-  const renderItem = ({ item }: { item: { date: string; items: Party[] } }) => (
-    <View style={styles.section}>
-      {/* Header de fecha */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionDate}>{formatSectionDate(item.date)}</Text>
-        <Text style={styles.sectionCount}>
-          {item.items.length} {item.items.length === 1 ? 'evento' : 'eventos'}
-        </Text>
-      </View>
-
-      {/* Eventos del día */}
-      {item.items.map((party) => (
-        <PartyCard
-          key={party.id}
-          party={party}
-          onPress={() => handlePartyPress(party)}
-        />
-      ))}
-    </View>
+  const renderItem = ({ item }: { item: Party }) => (
+    <PartyCard
+      party={item}
+      onPress={() => handlePartyPress(item)}
+    />
   );
 
+  const getDayName = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const options: Intl.DateTimeFormatOptions = { weekday: 'short' };
+    return date.toLocaleDateString('es-ES', options).replace('.', '');
+  };
+
+  const getDayNumber = (dateStr: string) => {
+    return new Date(dateStr).getDate();
+  };
+
   const renderHeader = () => (
-    <View style={styles.header}>
-      {/* Título */}
-      <View style={styles.titleContainer}>
-        <Text style={styles.title}>Eventos</Text>
-        <Text style={styles.subtitle}>Murcia</Text>
+    <View style={[styles.header, { backgroundColor: colors.background }]}>
+      {/* Título y Toggle de Tema */}
+      <View style={styles.topHeader}>
+        <View style={styles.titleContainer}>
+          <Text style={[styles.title, { color: colors.text }]}>Eventos</Text>
+          <Text style={styles.subtitle}>Murcia</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.themeToggle, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={toggleTheme}
+        >
+          <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Selector de fechas (Calendario Strip) */}
+      <View style={styles.calendarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.calendarScroll}
+        >
+          {/* Botón "Todas" */}
+          <TouchableOpacity
+            style={[
+              styles.dateChip,
+              { borderColor: colors.border, backgroundColor: colors.surface },
+              selectedDate === null && { backgroundColor: colors.primary, borderColor: colors.primary }
+            ]}
+            onPress={() => setSelectedDate(null)}
+          >
+            <Ionicons
+              name="calendar"
+              size={24}
+              color={selectedDate === null ? (isDark ? colors.background : colors.surface) : colors.text}
+              style={{ marginBottom: 4 }}
+            />
+            <Text style={[
+              styles.dayNumber,
+              { fontSize: 12 },
+              { color: colors.text },
+              selectedDate === null && { color: isDark ? colors.background : colors.surface }
+            ]}>
+              Todo
+            </Text>
+          </TouchableOpacity>
+
+          {calendarDates.map((date) => {
+            const isSelected = date === selectedDate;
+            return (
+              <TouchableOpacity
+                key={date}
+                style={[
+                  styles.dateChip,
+                  { borderColor: colors.border, backgroundColor: colors.surface },
+                  isSelected && { backgroundColor: colors.primary, borderColor: colors.primary }
+                ]}
+                onPress={() => setSelectedDate(date)}
+              >
+                <Text style={[
+                  styles.dayName,
+                  { color: colors.textSecondary },
+                  isSelected && { color: isDark ? colors.background : colors.surface }
+                ]}>
+                  {getDayName(date)}
+                </Text>
+                <Text style={[
+                  styles.dayNumber,
+                  { color: colors.text },
+                  isSelected && { color: isDark ? colors.background : colors.surface }
+                ]}>
+                  {getDayNumber(date)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Filtro de venues */}
@@ -190,13 +278,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               key={venue}
               style={[
                 styles.filterChip,
-                selectedVenue === venue && styles.filterChipActive
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                selectedVenue === venue && { backgroundColor: colors.primary, borderColor: colors.primary }
               ]}
               onPress={() => setSelectedVenue(venue)}
             >
               <Text style={[
                 styles.filterText,
-                selectedVenue === venue && styles.filterTextActive
+                { color: colors.textSecondary },
+                selectedVenue === venue && { color: isDark ? colors.background : colors.surface }
               ]}>
                 {venue}
               </Text>
@@ -204,19 +294,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           ))}
         </ScrollView>
       </View>
+
+      {/* Indicador de sección (Día seleccionado) */}
+      {filteredParties.length > 0 && (
+        <View style={styles.selectionIndicator}>
+          <Text style={[styles.sectionDate, { color: colors.text }]}>
+            {selectedDate ? formatSectionDate(selectedDate) : 'Próximos Eventos'}
+          </Text>
+          <Text style={[styles.sectionCount, { color: colors.textSecondary }]}>
+            {filteredParties.length} {filteredParties.length === 1 ? 'evento' : 'eventos'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name="calendar-outline" size={48} color="#D1D5DB" />
+      <View style={[styles.emptyIcon, { backgroundColor: colors.surface }]}>
+        <Ionicons name="calendar-outline" size={48} color={colors.border} />
       </View>
-      <Text style={styles.emptyTitle}>No hay eventos</Text>
-      <Text style={styles.emptySubtitle}>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>No hay eventos</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         {selectedVenue !== 'Todas'
-          ? `No hay eventos en ${selectedVenue}`
-          : 'Vuelve más tarde para ver nuevos eventos'
+          ? `No hay eventos en ${selectedVenue} para este día`
+          : 'No hay eventos programados para este día'
         }
       </Text>
     </View>
@@ -224,36 +326,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1F2937" />
-          <Text style={styles.loadingText}>Cargando eventos...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Cargando eventos...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <FlatList
-        data={groupedParties}
+        data={filteredParties}
         renderItem={renderItem}
-        keyExtractor={(item) => item.date}
+        keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.listContent,
-          groupedParties.length === 0 && styles.listContentEmpty
+          filteredParties.length === 0 && styles.listContentEmpty
         ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#1F2937"
+            tintColor={colors.primary}
           />
         }
       />
+
 
       {/* Toast de Actualización (Debug Temporal) */}
       {showUpdateToast && (
@@ -274,9 +377,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-    ...(Platform.OS === 'web' ? { height: '100vh', overflow: 'hidden' } : {}),
-  } as any,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -285,55 +386,94 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 15,
-    color: '#6B7280',
   },
   header: {
     paddingTop: 8,
     paddingBottom: 16,
-    backgroundColor: '#F9FAFB',
   },
-  titleContainer: {
+  topHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
     marginBottom: 20,
+  },
+  titleContainer: {
+    flex: 1,
+    alignItems: 'center', // Centrado solicitado
   },
   title: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#1F2937',
     letterSpacing: -0.5,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 32,
     fontWeight: '300',
     color: '#9CA3AF',
     letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    position: 'absolute',
+    right: 20,
+  },
+  calendarContainer: {
+    marginBottom: 20,
+  },
+  calendarScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  dateChip: {
+    width: 60,
+    height: 75,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  dayName: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  dayNumber: {
+    fontSize: 18,
+    fontWeight: '700',
   },
   filterContainer: {
-    marginBottom: 8,
+    marginBottom: 20,
   },
   filterScroll: {
     paddingHorizontal: 16,
+    gap: 8,
   },
   filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    marginRight: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 25,
+    marginRight: 4,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  filterChipActive: {
-    backgroundColor: '#1F2937',
-    borderColor: '#1F2937',
   },
   filterText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6B7280',
+    fontWeight: '600',
   },
-  filterTextActive: {
-    color: '#FFFFFF',
+  selectionIndicator: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
   },
   listContent: {
     paddingBottom: 32,
@@ -341,58 +481,44 @@ const styles = StyleSheet.create({
   listContentEmpty: {
     flex: 1,
   },
-  section: {
-    marginBottom: 8,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
   sectionDate: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 20,
+    fontWeight: '700',
     textTransform: 'capitalize',
   },
   sectionCount: {
-    fontSize: 13,
-    color: '#9CA3AF',
+    fontSize: 14,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+    marginTop: 60,
   },
   emptyIcon: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 20,
+    fontWeight: '700',
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 14,
-    color: '#9CA3AF',
+    fontSize: 15,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   updateToast: {
     position: 'absolute',
     bottom: 40,
     alignSelf: 'center',
-    backgroundColor: '#10B981', // Verde éxito
+    backgroundColor: '#10B981',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -411,3 +537,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+

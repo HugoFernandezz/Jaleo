@@ -1,10 +1,9 @@
 name: Scrape Events
 
 on:
-  # Ejecutar 3 veces al día: 10:00, 16:00, 22:00 (hora España)
-  # España es UTC+1 en invierno, UTC+2 en verano
+  # Ejecutar todos los días a las 13:00 hora española (12:00 UTC en invierno)
   schedule:
-    - cron: '0 9,15,21 * * *'   # UTC -> 10:00, 16:00, 22:00 España (invierno)
+    - cron: '0 12 * * *'
   
   # Permitir ejecución manual
   workflow_dispatch:
@@ -37,10 +36,15 @@ jobs:
       
       - name: Create data directory
         run: mkdir -p backend/data
+
+      - name: Create Firebase Credentials
+        env:
+          FIREBASE_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          cd backend
+          echo "$FIREBASE_KEY" > serviceAccountKey.json
       
       - name: Run scraper with Firebase upload
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           cd backend
           python scraper.py --firebase
