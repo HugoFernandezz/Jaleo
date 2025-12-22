@@ -23,6 +23,8 @@ import { RootStackParamList } from '../components/Navigation';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
+import { useAlerts } from '../context/AlertsContext';
+import { notificationService } from '../services/notificationService';
 
 // Configure Spanish locale for calendar
 LocaleConfig.locales['es'] = {
@@ -49,6 +51,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showUpdateToast, setShowUpdateToast] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+
+  const { alerts } = useAlerts();
+
+  // Check for new events when parties are loaded
+  useEffect(() => {
+    if (parties.length > 0 && alerts.length > 0) {
+      notificationService.checkForNewEvents(parties, alerts);
+    }
+  }, [parties, alerts]);
 
   const fadeAnim = useMemo(() => new Animated.Value(0), []);
 
@@ -222,14 +233,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     <View style={[styles.header, { backgroundColor: colors.background }]}>
       {/* Título con iconos */}
       <View style={styles.topHeader}>
-        {/* Calendar icon button (left) */}
+        {/* Left Action: Calendar */}
         <TouchableOpacity
-          style={[styles.headerButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[styles.headerButton, { backgroundColor: colors.surface, shadowColor: colors.text }]}
           onPress={() => setShowCalendar(true)}
+          activeOpacity={0.7}
         >
-          <Ionicons name="calendar-outline" size={20} color={colors.text} />
+          <Ionicons name="calendar-outline" size={22} color={colors.text} />
           {selectedDate && (
-            <View style={styles.calendarBadge}>
+            <View style={[styles.calendarBadge, { backgroundColor: colors.primary }]}>
               <Text style={styles.calendarBadgeText}>
                 {new Date(selectedDate).getDate()}
               </Text>
@@ -237,19 +249,38 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           )}
         </TouchableOpacity>
 
-        {/* Title */}
+        {/* Dynamic Title Hierarchy */}
         <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: colors.text }]}>Eventos</Text>
-          <Text style={styles.subtitle}>Murcia</Text>
+          <Text style={[styles.brandTitle, { color: colors.text }]}>
+            Eventos<Text style={[styles.brandSubtitle, { color: colors.primary }]}>.</Text>
+          </Text>
+          <View style={styles.locationRow}>
+            <Ionicons name="location" size={12} color={colors.textSecondary} />
+            <Text style={[styles.locationText, { color: colors.textSecondary }]}>Murcia, ES</Text>
+          </View>
         </View>
 
-        {/* Theme toggle (right) */}
-        <TouchableOpacity
-          style={[styles.headerButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={toggleTheme}
-        >
-          <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={colors.text} />
-        </TouchableOpacity>
+        {/* Right Actions: Theme + Notifications */}
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.headerButton, { backgroundColor: colors.surface, shadowColor: colors.text }]}
+            onPress={toggleTheme}
+            activeOpacity={0.7}
+          >
+            <Animated.View style={{ transform: [{ rotate: isDark ? '0deg' : '0deg' }] }}>
+              <Ionicons name={isDark ? "sunny" : "moon"} size={22} color={colors.text} />
+            </Animated.View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.headerButton, { backgroundColor: colors.surface, shadowColor: colors.text }]}
+            onPress={() => navigation.navigate('Alerts')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="notifications-outline" size={22} color={colors.text} />
+            {alerts.length > 0 && <View style={[styles.notificationDot, { backgroundColor: colors.primary }]} />}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Selected date chip (if date selected) */}
@@ -446,33 +477,62 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flex: 1,
-    alignItems: 'center', // Centrado solicitado
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
+  brandTitle: {
+    fontSize: 24,
+    fontWeight: '800',
     letterSpacing: -0.5,
-    textAlign: 'center',
   },
-  subtitle: {
-    fontSize: 32,
-    fontWeight: '300',
-    color: '#9CA3AF',
-    letterSpacing: -0.5,
-    textAlign: 'center',
+  brandSubtitle: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: -2,
+  },
+  locationText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14, // More modern squircle-like
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  notificationDot: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: 'transparent', // Will be overlayed
   },
   filterContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   filterScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 20,
+    gap: 10,
   },
   filterChip: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 25,
-    marginRight: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    marginRight: 0,
     borderWidth: 1,
   },
   filterText: {
@@ -481,10 +541,10 @@ const styles = StyleSheet.create({
   },
   selectionIndicator: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 4,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
   },
   listContent: {
     paddingBottom: 32,
@@ -559,19 +619,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'capitalize',
   },
-  headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
   calendarBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#3B82F6',
     width: 18,
     height: 18,
     borderRadius: 9,
@@ -630,6 +681,11 @@ const styles = StyleSheet.create({
   calendarClearText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
 });
 

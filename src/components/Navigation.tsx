@@ -3,12 +3,14 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import { createStackNavigator } from '@react-navigation/stack';
 import { HomeScreen } from '../screens/HomeScreen';
 import { EventDetailScreen } from '../screens/EventDetailScreen';
+import { AlertsScreen } from '../screens/AlertsScreen';
 import { Party } from '../types';
 import { useTheme } from '../context/ThemeContext';
 
 export type RootStackParamList = {
   Home: undefined;
   EventDetail: { party: Party };
+  Alerts: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -35,6 +37,7 @@ export const Navigation: React.FC = () => {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="EventDetail" component={EventDetailScreen} />
+        <Stack.Screen name="Alerts" component={AlertsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

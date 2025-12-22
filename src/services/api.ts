@@ -342,6 +342,12 @@ class ApiService {
     return this.makeRequest<{ venues: Venue[], parties: Party[] }>(this.shouldFetchNewData());
   }
 
+  // Helper para obtener solo fiestas
+  async getParties(): Promise<Party[]> {
+    const response = await this.getCompleteData();
+    return response.success && response.data ? response.data.parties : [];
+  }
+
   // Suscribirse a actualizaciones en tiempo real vía Firebase
   public subscribeToUpdates(callback: (data: { venues: Venue[], parties: Party[] }) => void): () => void {
     return subscribeToEventos((rawEvents) => {
