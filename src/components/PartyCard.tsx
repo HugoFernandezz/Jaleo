@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Image,
-  TouchableOpacity,
-  Dimensions
+  Dimensions,
+  Animated,
+  TouchableWithoutFeedback
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Party } from '../types';
@@ -21,6 +22,27 @@ interface PartyCardProps {
 export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
   const [imageError, setImageError] = useState(false);
   const { colors, isDark } = useTheme();
+
+  // Animation value
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.95,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 4,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 4,
+    }).start();
+  };
 
   const isSoldOut = !party.isAvailable;
   const hasFewLeft = party.fewLeft && !isSoldOut;
@@ -80,96 +102,104 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
   };
 
   return (
-    <TouchableOpacity
-      style={[styles.card, dynamicStyles.card]}
+    <TouchableWithoutFeedback
       onPress={onPress}
-      activeOpacity={0.7}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
-      {/* Imagen con overlay de fecha */}
-      <View style={styles.imageContainer}>
-        <Image
-          source={
-            imageError
-              ? require('../../assets/icon.png')
-              : { uri: party.imageUrl }
-          }
-          style={styles.image}
-          onError={() => setImageError(true)}
-        />
+      <Animated.View
+        style={[
+          styles.card,
+          dynamicStyles.card,
+          { transform: [{ scale: scaleAnim }] }
+        ]}
+      >
+        {/* Imagen con overlay de fecha */}
+        <View style={styles.imageContainer}>
+          <Image
+            source={
+              imageError
+                ? require('../../assets/icon.png')
+                : { uri: party.imageUrl }
+            }
+            style={styles.image}
+            onError={() => setImageError(true)}
+          />
 
-        {/* Badge de fecha */}
-        <View style={[styles.dateBadge, dynamicStyles.dateBadge]}>
-          <Text style={[styles.dateDay, dynamicStyles.dateDay]}>{day}</Text>
-          <Text style={[styles.dateMonth, dynamicStyles.dateMonth]}>{month}</Text>
+          {/* Badge de fecha */}
+          <View style={[styles.dateBadge, dynamicStyles.dateBadge]}>
+            <Text style={[styles.dateDay, dynamicStyles.dateDay]}>{day}</Text>
+            <Text style={[styles.dateMonth, dynamicStyles.dateMonth]}>{month}</Text>
+          </View>
+
+          {/* Overlay de agotado */}
+          {isSoldOut && (
+            <View style={styles.soldOutOverlay}>
+              <Text style={styles.soldOutText}>AGOTADO</Text>
+            </View>
+          )}
+
+          {/* Indicador de pocas entradas */}
+          {hasFewLeft && (
+            <View style={styles.fewLeftBadge}>
+              <Text style={styles.fewLeftText}>Últimas</Text>
+            </View>
+          )}
         </View>
 
-        {/* Overlay de agotado */}
-        {isSoldOut && (
-          <View style={styles.soldOutOverlay}>
-            <Text style={styles.soldOutText}>AGOTADO</Text>
-          </View>
-        )}
-
-        {/* Indicador de pocas entradas */}
-        {hasFewLeft && (
-          <View style={styles.fewLeftBadge}>
-            <Text style={styles.fewLeftText}>Últimas</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Contenido */}
-      <View style={styles.content}>
-        {/* Título */}
-        <Text style={[styles.title, dynamicStyles.title]} numberOfLines={2}>
-          {party.title}
-        </Text>
-
-        {/* Venue */}
-        <View style={styles.venueRow}>
-          <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
-          <Text style={[styles.venue, dynamicStyles.venue]} numberOfLines={1}>
-            {party.venueName}
+        {/* Contenido */}
+        <View style={styles.content}>
+          {/* Título */}
+          <Text style={[styles.title, dynamicStyles.title]} numberOfLines={2}>
+            {party.title}
           </Text>
-        </View>
 
-        {/* Hora */}
-        <View style={styles.timeRow}>
-          <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
-          <Text style={[styles.time, dynamicStyles.time]}>
-            {party.startTime} - {party.endTime}
-          </Text>
-        </View>
-
-        {/* Footer con precio y tags */}
-        <View style={styles.footer}>
-          {/* Tags */}
-          <View style={styles.tagsContainer}>
-            {party.tags?.slice(0, 2).map((tag, index) => (
-              <View key={index} style={[styles.tag, dynamicStyles.tag]}>
-                <Text style={[styles.tagText, dynamicStyles.tagText]}>{tag}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Precio */}
-          <View style={[
-            styles.priceContainer,
-            dynamicStyles.priceContainer,
-            isSoldOut && styles.priceSoldOut,
-            hasFewLeft && styles.priceFewLeft,
-          ]}>
-            <Text style={[
-              styles.price,
-              dynamicStyles.price,
-              isSoldOut && styles.priceSoldOutText,
-            ]}>
-              {formatPrice()}
+          {/* Venue */}
+          <View style={styles.venueRow}>
+            <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+            <Text style={[styles.venue, dynamicStyles.venue]} numberOfLines={1}>
+              {party.venueName}
             </Text>
           </View>
+
+          {/* Hora */}
+          <View style={styles.timeRow}>
+            <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+            <Text style={[styles.time, dynamicStyles.time]}>
+              {party.startTime} - {party.endTime}
+            </Text>
+          </View>
+
+          {/* Footer con precio y tags */}
+          <View style={styles.footer}>
+            {/* Tags */}
+            <View style={styles.tagsContainer}>
+              {party.tags?.slice(0, 2).map((tag, index) => (
+                <View key={index} style={[styles.tag, dynamicStyles.tag]}>
+                  <Text style={[styles.tagText, dynamicStyles.tagText]}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Precio */}
+            <View style={[
+              styles.priceContainer,
+              dynamicStyles.priceContainer,
+              isSoldOut && styles.priceSoldOut,
+              hasFewLeft && styles.priceFewLeft,
+            ]}>
+              <Text style={[
+                styles.price,
+                dynamicStyles.price,
+                isSoldOut && styles.priceSoldOutText,
+              ]}>
+                {formatPrice()}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </Animated.View>
+    </TouchableWithoutFeedback>
   );
 };
 
