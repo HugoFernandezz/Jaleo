@@ -10,9 +10,12 @@ import {
   RefreshControl,
   Platform,
   Animated,
+  Modal,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { PartyCard } from '../components/PartyCard';
 import { Party } from '../types';
 import { apiService } from '../services/api';
@@ -20,6 +23,16 @@ import { RootStackParamList } from '../components/Navigation';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
+
+// Configure Spanish locale for calendar
+LocaleConfig.locales['es'] = {
+  monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+  monthNamesShort: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+  dayNamesShort: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'],
+  today: 'Hoy'
+};
+LocaleConfig.defaultLocale = 'es';
 
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -35,6 +48,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [availableVenues, setAvailableVenues] = useState<string[]>(['Todas']);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showUpdateToast, setShowUpdateToast] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
 
   const fadeAnim = useMemo(() => new Animated.Value(0), []);
 
@@ -95,17 +109,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const { colors, toggleTheme, isDark } = useTheme();
 
-  // Generar fechas para el calendario (próximos 30 días)
-  const calendarDates = useMemo(() => {
-    const dates = [];
-    const today = new Date();
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      dates.push(d.toISOString().split('T')[0]);
+  // Create marked dates object for calendar (dates with events get a blue dot)
+  const markedDates = useMemo(() => {
+    const marks: { [key: string]: any } = {};
+
+    // Get all unique dates from parties
+    const eventDates = new Set(parties.map(p => p.date));
+
+    eventDates.forEach(date => {
+      marks[date] = {
+        marked: true,
+        dotColor: '#3B82F6', // Blue dot
+      };
+    });
+
+    // Add selection styling if a date is selected
+    if (selectedDate) {
+      marks[selectedDate] = {
+        ...marks[selectedDate],
+        selected: true,
+        selectedColor: colors.primary,
+      };
     }
-    return dates;
-  }, []);
+
+    return marks;
+  }, [parties, selectedDate, colors.primary]);
 
   // Filtrar y agrupar eventos
   const filteredParties = useMemo(() => {
@@ -190,95 +218,52 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     );
   };
 
-  const getDayName = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const options: Intl.DateTimeFormatOptions = { weekday: 'short' };
-    return date.toLocaleDateString('es-ES', options).replace('.', '');
-  };
-
-  const getDayNumber = (dateStr: string) => {
-    return new Date(dateStr).getDate();
-  };
-
   const renderHeader = () => (
     <View style={[styles.header, { backgroundColor: colors.background }]}>
-      {/* Título y Toggle de Tema */}
+      {/* Título con iconos */}
       <View style={styles.topHeader}>
+        {/* Calendar icon button (left) */}
+        <TouchableOpacity
+          style={[styles.headerButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={() => setShowCalendar(true)}
+        >
+          <Ionicons name="calendar-outline" size={20} color={colors.text} />
+          {selectedDate && (
+            <View style={styles.calendarBadge}>
+              <Text style={styles.calendarBadgeText}>
+                {new Date(selectedDate).getDate()}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Title */}
         <View style={styles.titleContainer}>
           <Text style={[styles.title, { color: colors.text }]}>Eventos</Text>
           <Text style={styles.subtitle}>Murcia</Text>
         </View>
+
+        {/* Theme toggle (right) */}
         <TouchableOpacity
-          style={[styles.themeToggle, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[styles.headerButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={toggleTheme}
         >
           <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      {/* Selector de fechas (Calendario Strip) */}
-      <View style={styles.calendarContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.calendarScroll}
+      {/* Selected date chip (if date selected) */}
+      {selectedDate && (
+        <TouchableOpacity
+          style={[styles.selectedDateChip, { backgroundColor: colors.primary }]}
+          onPress={() => setSelectedDate(null)}
         >
-          {/* Botón "Todas" */}
-          <TouchableOpacity
-            style={[
-              styles.dateChip,
-              { borderColor: colors.border, backgroundColor: colors.surface },
-              selectedDate === null && { backgroundColor: colors.primary, borderColor: colors.primary }
-            ]}
-            onPress={() => setSelectedDate(null)}
-          >
-            <Ionicons
-              name="calendar"
-              size={24}
-              color={selectedDate === null ? (isDark ? colors.background : colors.surface) : colors.text}
-              style={{ marginBottom: 4 }}
-            />
-            <Text style={[
-              styles.dayNumber,
-              { fontSize: 12 },
-              { color: colors.text },
-              selectedDate === null && { color: isDark ? colors.background : colors.surface }
-            ]}>
-              Todo
-            </Text>
-          </TouchableOpacity>
-
-          {calendarDates.map((date) => {
-            const isSelected = date === selectedDate;
-            return (
-              <TouchableOpacity
-                key={date}
-                style={[
-                  styles.dateChip,
-                  { borderColor: colors.border, backgroundColor: colors.surface },
-                  isSelected && { backgroundColor: colors.primary, borderColor: colors.primary }
-                ]}
-                onPress={() => setSelectedDate(date)}
-              >
-                <Text style={[
-                  styles.dayName,
-                  { color: colors.textSecondary },
-                  isSelected && { color: isDark ? colors.background : colors.surface }
-                ]}>
-                  {getDayName(date)}
-                </Text>
-                <Text style={[
-                  styles.dayNumber,
-                  { color: colors.text },
-                  isSelected && { color: isDark ? colors.background : colors.surface }
-                ]}>
-                  {getDayNumber(date)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+          <Text style={[styles.selectedDateText, { color: isDark ? colors.background : colors.surface }]}>
+            {formatSectionDate(selectedDate)}
+          </Text>
+          <Ionicons name="close-circle" size={18} color={isDark ? colors.background : colors.surface} />
+        </TouchableOpacity>
+      )}
 
       {/* Filtro de venues */}
       <View style={styles.filterContainer}>
@@ -309,7 +294,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         </ScrollView>
       </View>
 
-      {/* Indicador de sección (Día seleccionado) */}
+      {/* Indicador de sección */}
       {filteredParties.length > 0 && (
         <View style={styles.selectionIndicator}>
           <Text style={[styles.sectionDate, { color: colors.text }]}>
@@ -384,6 +369,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           <Text style={styles.updateToastText}>Base de datos actualizada</Text>
         </Animated.View>
       )}
+
+      {/* Calendar Modal */}
+      <Modal
+        visible={showCalendar}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCalendar(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowCalendar(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.calendarModal, { backgroundColor: colors.surface }]}>
+                <View style={styles.calendarHeader}>
+                  <Text style={[styles.calendarTitle, { color: colors.text }]}>Seleccionar fecha</Text>
+                  <TouchableOpacity onPress={() => { setSelectedDate(null); setShowCalendar(false); }}>
+                    <Text style={[styles.calendarClearText, { color: colors.primary }]}>Ver todos</Text>
+                  </TouchableOpacity>
+                </View>
+                <Calendar
+                  markedDates={markedDates}
+                  onDayPress={(day: { dateString: string }) => {
+                    setSelectedDate(day.dateString);
+                    setShowCalendar(false);
+                  }}
+                  theme={{
+                    backgroundColor: colors.surface,
+                    calendarBackground: colors.surface,
+                    textSectionTitleColor: colors.textSecondary,
+                    selectedDayBackgroundColor: colors.primary,
+                    selectedDayTextColor: isDark ? colors.background : colors.surface,
+                    todayTextColor: colors.primary,
+                    dayTextColor: colors.text,
+                    textDisabledColor: colors.border,
+                    monthTextColor: colors.text,
+                    arrowColor: colors.primary,
+                    textDayFontWeight: '500',
+                    textMonthFontWeight: '700',
+                    textDayHeaderFontWeight: '600',
+                  }}
+                  minDate={new Date().toISOString().split('T')[0]}
+                  enableSwipeMonths={true}
+                />
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -428,41 +460,6 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     letterSpacing: -0.5,
     textAlign: 'center',
-  },
-  themeToggle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    position: 'absolute',
-    right: 20,
-  },
-  calendarContainer: {
-    marginBottom: 20,
-  },
-  calendarScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  dateChip: {
-    width: 60,
-    height: 75,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  dayName: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  dayNumber: {
-    fontSize: 18,
-    fontWeight: '700',
   },
   filterContainer: {
     marginBottom: 20,
@@ -561,6 +558,78 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textTransform: 'capitalize',
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  calendarBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#3B82F6',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  selectedDateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 8,
+    marginBottom: 16,
+  },
+  selectedDateText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  calendarModal: {
+    borderRadius: 20,
+    padding: 16,
+    width: '100%',
+    maxWidth: 360,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  calendarTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  calendarClearText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
