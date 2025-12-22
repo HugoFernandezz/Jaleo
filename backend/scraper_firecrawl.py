@@ -389,9 +389,12 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
             for line in lines[:20]:
                 line = line.strip()
                 # Descripción si empieza con texto, no es imagen, y tiene longitud razonable
+                # Excluir también líneas con enlaces de Google Maps
                 if (line and not line.startswith('!') and not line.startswith('#') 
-                    and not line.startswith('-') and len(line) > 50
-                    and 'RESERVA' not in line.upper() and 'DERECHO' not in line.upper()):
+                    and not line.startswith('-') and not line.startswith('[')
+                    and len(line) > 50
+                    and 'RESERVA' not in line.upper() and 'DERECHO' not in line.upper()
+                    and 'google.com/maps' not in line.lower() and 'google maps' not in line.lower()):
                     event_description = line
                     break
         
