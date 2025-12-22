@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Image,
   TouchableOpacity,
   Linking,
@@ -18,7 +17,8 @@ import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+const HEADER_HEIGHT = 400; // Increased for parallax effect
 
 interface EventDetailScreenProps {
   route: {
@@ -33,6 +33,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   const { party } = route.params;
   const [imageError, setImageError] = useState(false);
   const { colors, isDark } = useTheme();
+  const scrollY = useRef(new Animated.Value(0)).current;
 
   // Formatear fecha
   const formatDate = (dateString: string) => {
@@ -168,33 +169,36 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        bounces={false}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header Image - Fixed */}
+      <View style={styles.imageContainer}>
+        <Image
+          source={
+            imageError
+              ? require('../../assets/icon.png')
+              : { uri: party.imageUrl }
+          }
+          style={styles.image}
+          onError={() => setImageError(true)}
+          resizeMode="cover"
+        />
+      </View>
+
+      {/* Back button - fixed position */}
+      <TouchableOpacity
+        style={[styles.backButton, { backgroundColor: colors.surface }]}
+        onPress={() => navigation.goBack()}
       >
-        {/* Imagen del evento */}
-        <View style={styles.imageContainer}>
-          <Image
-            source={
-              imageError
-                ? require('../../assets/icon.png')
-                : { uri: party.imageUrl }
-            }
-            style={styles.image}
-            onError={() => setImageError(true)}
-          />
+        <Ionicons name="chevron-back" size={24} color={colors.text} />
+      </TouchableOpacity>
 
-          {/* Botón volver */}
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.surface }]}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="chevron-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-
-          {/* Gradient overlay logic could be here */}
-        </View>
+      {/* Scrollable Content */}
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingTop: HEADER_HEIGHT - 32 }}
+      >
 
         {/* Contenido */}
         <View style={[styles.content, { backgroundColor: colors.background }]}>
@@ -313,8 +317,8 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
             </View>
           )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </View>
   );
 };
 
@@ -324,8 +328,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   imageContainer: {
-    height: 320,
-    position: 'relative',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: HEADER_HEIGHT,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
@@ -345,15 +353,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 5,
+    zIndex: 10,
   },
   content: {
-    flex: 1,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    marginTop: -32,
     paddingTop: 32,
     paddingHorizontal: 24,
     paddingBottom: 40,
+    minHeight: height - HEADER_HEIGHT + 100,
   },
   titleSection: {
     marginBottom: 32,
