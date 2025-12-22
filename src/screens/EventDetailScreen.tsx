@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Linking,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,71 +69,101 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
     const isSoldOut = ticket.isSoldOut || !ticket.isAvailable;
     const hasFewLeft = ticket.fewLeft && !isSoldOut;
 
+    // Animation value for bounce effect
+    const scaleAnim = React.useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.95,
+        useNativeDriver: true,
+        speed: 50,
+        bounciness: 4,
+      }).start();
+    };
+
+    const handlePressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        speed: 8,
+        bounciness: 12,
+      }).start();
+    };
+
+    const handlePress = () => {
+      if (!isSoldOut) {
+        handleBuyTicket(ticket);
+      }
+    };
+
     return (
-      <View
+      <Animated.View
         key={ticket.id || index}
         style={[
-          styles.ticketCard,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-          isSoldOut && styles.ticketCardSoldOut
+          { transform: [{ scale: scaleAnim }] }
         ]}
       >
-        <View style={styles.ticketContent}>
-          {/* Nombre y badges */}
-          <View style={styles.ticketHeader}>
-            <Text
-              style={[
-                styles.ticketName,
-                { color: colors.text },
-                isSoldOut && styles.ticketNameSoldOut
-              ]}
-              numberOfLines={2}
-            >
-              {ticket.name}
-            </Text>
-
-            {hasFewLeft && (
-              <View style={styles.fewLeftBadge}>
-                <Text style={styles.fewLeftText}>Últimas</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Descripción si existe */}
-          {ticket.description ? (
-            <Text style={[styles.ticketDescription, { color: colors.textSecondary }]} numberOfLines={2}>
-              {ticket.description}
-            </Text>
-          ) : null}
-
-          {/* Precio y botón */}
-          <View style={styles.ticketFooter}>
-            <View style={styles.priceContainer}>
-              <Text style={[
-                styles.ticketPrice,
-                { color: colors.text },
-                isSoldOut && styles.ticketPriceSoldOut
-              ]}>
-                {isSoldOut ? 'Agotado' : (ticket.price === 0 ? 'Gratis' : `${ticket.price}€`)}
+        <TouchableOpacity
+          onPress={handlePress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          activeOpacity={1}
+          disabled={isSoldOut}
+          style={[
+            styles.ticketCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+            isSoldOut && styles.ticketCardSoldOut
+          ]}
+        >
+          <View style={styles.ticketContent}>
+            {/* Nombre y badges */}
+            <View style={styles.ticketHeader}>
+              <Text
+                style={[
+                  styles.ticketName,
+                  { color: colors.text },
+                  isSoldOut && styles.ticketNameSoldOut
+                ]}
+                numberOfLines={2}
+              >
+                {ticket.name}
               </Text>
+
+              {hasFewLeft && (
+                <View style={styles.fewLeftBadge}>
+                  <Text style={styles.fewLeftText}>Últimas</Text>
+                </View>
+              )}
             </View>
 
-            {!isSoldOut && (
-              <TouchableOpacity
-                style={[
-                  styles.buyButton,
-                  { backgroundColor: colors.primary },
-                  hasFewLeft && styles.buyButtonFewLeft
-                ]}
-                onPress={() => handleBuyTicket(ticket)}
-              >
-                <Text style={[styles.buyButtonText, { color: isDark ? colors.background : colors.surface }]}>Comprar</Text>
-                <Ionicons name="arrow-forward" size={16} color={isDark ? colors.background : colors.surface} />
-              </TouchableOpacity>
-            )}
+            {/* Descripción si existe */}
+            {ticket.description ? (
+              <Text style={[styles.ticketDescription, { color: colors.textSecondary }]} numberOfLines={2}>
+                {ticket.description}
+              </Text>
+            ) : null}
+
+            {/* Precio y chevron indicator */}
+            <View style={styles.ticketFooter}>
+              <View style={styles.priceContainer}>
+                <Text style={[
+                  styles.ticketPrice,
+                  { color: colors.text },
+                  isSoldOut && styles.ticketPriceSoldOut
+                ]}>
+                  {isSoldOut ? 'Agotado' : (ticket.price === 0 ? 'Gratis' : `${ticket.price}€`)}
+                </Text>
+              </View>
+
+              {!isSoldOut && (
+                <View style={[styles.ticketChevron, { backgroundColor: isDark ? '#374151' : '#F3F4F6' }]}>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                </View>
+              )}
+            </View>
           </View>
-        </View>
-      </View>
+        </TouchableOpacity>
+      </Animated.View>
     );
   };
 
@@ -456,20 +487,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  buyButton: {
-    flexDirection: 'row',
+  ticketChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 16,
-    gap: 8,
-  },
-  buyButtonFewLeft: {
-    backgroundColor: '#F59E0B',
-  },
-  buyButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
   },
   descriptionSection: {
     marginBottom: 32,

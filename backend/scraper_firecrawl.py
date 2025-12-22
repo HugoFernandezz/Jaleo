@@ -341,11 +341,13 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                         "url_compra": event_url
                     }
                 
-                # Detectar precio (formato: "X €")
+                # Detectar precio (formato: "X €") - Solo si no tiene precio inline
                 elif current_ticket and re.search(r'^\d+\s*€$', line):
-                    price_match = re.search(r'(\d+)\s*€', line)
-                    if price_match:
-                        current_ticket['precio'] = price_match.group(1)
+                    # Solo actualizar si no tiene precio inline válido
+                    if current_ticket['precio'] == "0":
+                        price_match = re.search(r'(\d+)\s*€', line)
+                        if price_match:
+                            current_ticket['precio'] = price_match.group(1)
                 
                 # Detectar si está agotada
                 elif current_ticket and 'agotad' in line.lower():

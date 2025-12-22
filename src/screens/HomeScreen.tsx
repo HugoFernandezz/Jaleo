@@ -169,12 +169,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return date.toLocaleDateString('es-ES', options);
   };
 
-  const renderItem = ({ item }: { item: Party }) => (
-    <PartyCard
-      party={item}
-      onPress={() => handlePartyPress(item)}
-    />
-  );
+  const renderItem = ({ item, index }: { item: Party; index: number }) => {
+    const previousItem = index > 0 ? filteredParties[index - 1] : null;
+    const showDateSeparator = !selectedDate && previousItem && previousItem.date !== item.date;
+
+    return (
+      <View>
+        {showDateSeparator && (
+          <View style={[styles.dateSeparator, { borderTopColor: colors.border }]}>
+            <Text style={[styles.dateSeparatorText, { color: colors.textSecondary }]}>
+              {formatSectionDate(item.date)}
+            </Text>
+          </View>
+        )}
+        <PartyCard
+          party={item}
+          onPress={() => handlePartyPress(item)}
+        />
+      </View>
+    );
+  };
 
   const getDayName = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -535,6 +549,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 14,
+  },
+  dateSeparator: {
+    borderTopWidth: 1,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 16,
+    paddingTop: 16,
+  },
+  dateSeparatorText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textTransform: 'capitalize',
   },
 });
 

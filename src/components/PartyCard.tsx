@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Party } from '../types';
+import { useTheme } from '../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -19,6 +20,7 @@ interface PartyCardProps {
 
 export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
   const [imageError, setImageError] = useState(false);
+  const { colors, isDark } = useTheme();
 
   const isSoldOut = !party.isAvailable;
   const hasFewLeft = party.fewLeft && !isSoldOut;
@@ -40,9 +42,46 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
     return `${party.price}€`;
   };
 
+  // Dynamic styles based on theme
+  const dynamicStyles = {
+    card: {
+      backgroundColor: colors.card,
+    },
+    dateBadge: {
+      backgroundColor: colors.surface,
+    },
+    dateDay: {
+      color: colors.text,
+    },
+    dateMonth: {
+      color: colors.textSecondary,
+    },
+    title: {
+      color: colors.text,
+    },
+    venue: {
+      color: colors.textSecondary,
+    },
+    time: {
+      color: colors.textSecondary,
+    },
+    tag: {
+      backgroundColor: isDark ? '#374151' : '#F3F4F6',
+    },
+    tagText: {
+      color: colors.textSecondary,
+    },
+    priceContainer: {
+      backgroundColor: isDark ? '#FFFFFF' : '#1F2937',
+    },
+    price: {
+      color: isDark ? '#1F2937' : '#FFFFFF',
+    },
+  };
+
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, dynamicStyles.card]}
       onPress={onPress}
       activeOpacity={0.7}
     >
@@ -59,9 +98,9 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
         />
 
         {/* Badge de fecha */}
-        <View style={styles.dateBadge}>
-          <Text style={styles.dateDay}>{day}</Text>
-          <Text style={styles.dateMonth}>{month}</Text>
+        <View style={[styles.dateBadge, dynamicStyles.dateBadge]}>
+          <Text style={[styles.dateDay, dynamicStyles.dateDay]}>{day}</Text>
+          <Text style={[styles.dateMonth, dynamicStyles.dateMonth]}>{month}</Text>
         </View>
 
         {/* Overlay de agotado */}
@@ -82,22 +121,22 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
       {/* Contenido */}
       <View style={styles.content}>
         {/* Título */}
-        <Text style={styles.title} numberOfLines={2}>
+        <Text style={[styles.title, dynamicStyles.title]} numberOfLines={2}>
           {party.title}
         </Text>
 
         {/* Venue */}
         <View style={styles.venueRow}>
-          <Ionicons name="location-outline" size={14} color="#9CA3AF" />
-          <Text style={styles.venue} numberOfLines={1}>
+          <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+          <Text style={[styles.venue, dynamicStyles.venue]} numberOfLines={1}>
             {party.venueName}
           </Text>
         </View>
 
         {/* Hora */}
         <View style={styles.timeRow}>
-          <Ionicons name="time-outline" size={14} color="#9CA3AF" />
-          <Text style={styles.time}>
+          <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+          <Text style={[styles.time, dynamicStyles.time]}>
             {party.startTime} - {party.endTime}
           </Text>
         </View>
@@ -107,8 +146,8 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
           {/* Tags */}
           <View style={styles.tagsContainer}>
             {party.tags?.slice(0, 2).map((tag, index) => (
-              <View key={index} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
+              <View key={index} style={[styles.tag, dynamicStyles.tag]}>
+                <Text style={[styles.tagText, dynamicStyles.tagText]}>{tag}</Text>
               </View>
             ))}
           </View>
@@ -116,11 +155,13 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
           {/* Precio */}
           <View style={[
             styles.priceContainer,
+            dynamicStyles.priceContainer,
             isSoldOut && styles.priceSoldOut,
             hasFewLeft && styles.priceFewLeft,
           ]}>
             <Text style={[
               styles.price,
+              dynamicStyles.price,
               isSoldOut && styles.priceSoldOutText,
             ]}>
               {formatPrice()}
@@ -134,7 +175,6 @@ export const PartyCard: React.FC<PartyCardProps> = ({ party, onPress }) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     marginHorizontal: 16,
     marginBottom: 16,
@@ -152,13 +192,12 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#374151',
   },
   dateBadge: {
     position: 'absolute',
     top: 12,
     left: 12,
-    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -172,13 +211,11 @@ const styles = StyleSheet.create({
   dateDay: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
     lineHeight: 20,
   },
   dateMonth: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#6B7280',
     letterSpacing: 0.5,
   },
   soldOutOverlay: {
@@ -213,7 +250,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#1F2937',
     lineHeight: 22,
     marginBottom: 8,
   },
@@ -224,7 +260,6 @@ const styles = StyleSheet.create({
   },
   venue: {
     fontSize: 13,
-    color: '#6B7280',
     marginLeft: 4,
     flex: 1,
   },
@@ -235,7 +270,6 @@ const styles = StyleSheet.create({
   },
   time: {
     fontSize: 13,
-    color: '#6B7280',
     marginLeft: 4,
   },
   footer: {
@@ -248,7 +282,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tag: {
-    backgroundColor: '#F3F4F6',
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -256,11 +289,9 @@ const styles = StyleSheet.create({
   },
   tagText: {
     fontSize: 11,
-    color: '#6B7280',
     fontWeight: '500',
   },
   priceContainer: {
-    backgroundColor: '#1F2937',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -272,7 +303,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F59E0B',
   },
   price: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
