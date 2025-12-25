@@ -365,8 +365,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     );
   }
 
+  const Container = Platform.OS === 'web' ? View : SafeAreaView;
+  const containerProps = Platform.OS === 'web' 
+    ? { style: [styles.container, styles.containerWeb, { backgroundColor: colors.background }] }
+    : { style: [styles.container, { backgroundColor: colors.background }], edges: ['top'] as const };
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <Container {...containerProps}>
       <FlatList
         data={filteredParties}
         renderItem={renderItem}
@@ -378,6 +383,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           styles.listContent,
           filteredParties.length === 0 && styles.listContentEmpty
         ]}
+        style={Platform.OS === 'web' ? styles.flatListWeb : undefined}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -447,13 +453,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </SafeAreaView>
+    </Container>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  containerWeb: {
+    height: '100vh',
+    width: '100%',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  flatListWeb: {
+    flex: 1,
+    height: '100%',
+    width: '100%',
+    WebkitOverflowScrolling: 'touch' as any,
   },
   loadingContainer: {
     flex: 1,

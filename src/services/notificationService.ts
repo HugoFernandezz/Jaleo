@@ -2,10 +2,13 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getFirestore, collection, doc, setDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
+import { db } from './firebase';
 import { Party } from '../types';
 import { NotificationAlert } from '../types/notifications';
 
 const EVENTS_SNAPSHOT_KEY = '@partyfinder_events_snapshot';
+const FCM_TOKEN_KEY = '@partyfinder_fcm_token';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -19,11 +22,11 @@ Notifications.setNotificationHandler({
 });
 
 export const notificationService = {
-    // Request notification permissions
-    async requestPermissions(): Promise<boolean> {
+    // Request notification permissions and get FCM token
+    async requestPermissions(): Promise<string | null> {
         if (!Device.isDevice) {
             console.log('Must use physical device for Push Notifications');
-            return false;
+            return null;
         }
 
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -36,7 +39,7 @@ export const notificationService = {
 
         if (finalStatus !== 'granted') {
             console.log('Failed to get push token for push notification!');
-            return false;
+            return null;
         }
 
         // Configure Android channel
@@ -49,7 +52,70 @@ export const notificationService = {
             });
         }
 
-        return true;
+        // Get FCM token (Expo Push Token)
+        try {
+            const tokenData = await Notifications.getExpoPushTokenAsync({
+                projectId: 'partyfinder-murcia', // Debe coincidir con tu app.json extra.eas.projectId
+            });
+            const token = tokenData.data;
+            
+            // Save token locally
+            await AsyncStorage.setItem(FCM_TOKEN_KEY, token);
+            
+            return token;
+        } catch (error) {
+            console.error('Error getting Expo push token:', error);
+            return null;
+        }
+    },
+
+    // Get stored FCM token
+    async getStoredToken(): Promise<string | null> {
+        try {
+            return await AsyncStorage.getItem(FCM_TOKEN_KEY);
+        } catch (error) {
+            console.error('Error getting stored token:', error);
+            return null;
+        }
+    },
+
+    // Register device token for an alert in Firebase
+    async registerAlertToken(alertId: string, token: string): Promise<void> {
+        try {
+            const alertsRef = collection(db, 'alert_tokens');
+            await setDoc(doc(alertsRef, `${alertId}_${token}`), {
+                alertId,
+                token,
+                platform: Platform.OS,
+                registeredAt: new Date().toISOString(),
+            });
+        } catch (error) {
+            console.error('Error registering alert token:', error);
+        }
+    },
+
+    // Unregister device token for an alert
+    async unregisterAlertToken(alertId: string, token: string): Promise<void> {
+        try {
+            const alertsRef = collection(db, 'alert_tokens');
+            await deleteDoc(doc(alertsRef, `${alertId}_${token}`));
+        } catch (error) {
+            console.error('Error unregistering alert token:', error);
+        }
+    },
+
+    // Unregister all tokens for an alert (when alert is deleted)
+    async unregisterAllAlertTokens(alertId: string): Promise<void> {
+        try {
+            const alertsRef = collection(db, 'alert_tokens');
+            const q = query(alertsRef, where('alertId', '==', alertId));
+            const snapshot = await getDocs(q);
+            
+            const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+            await Promise.all(deletePromises);
+        } catch (error) {
+            console.error('Error unregistering all alert tokens:', error);
+        }
     },
 
     // Show a local notification

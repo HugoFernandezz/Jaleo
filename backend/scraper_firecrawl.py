@@ -991,6 +991,15 @@ def main():
             delete_old_events()
             upload_events_to_firestore(transformed)
             print("✅ Datos subidos a Firebase")
+            
+            # Enviar push notifications para nuevos eventos
+            print("\n📬 Verificando y enviando notificaciones push...")
+            try:
+                from push_notifications import check_and_send_notifications
+                check_and_send_notifications()
+            except Exception as e:
+                print(f"⚠️ Error enviando notificaciones: {e}")
+                # No fallar el scraper si las notificaciones fallan
         except Exception as e:
             print(f"❌ Error subiendo a Firebase: {e}")
     

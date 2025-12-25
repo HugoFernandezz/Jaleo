@@ -6,26 +6,47 @@
     "orientation": "portrait",
     "icon": "./assets/IconPartyFinder.png",
     "userInterfaceStyle": "automatic",
+    "extra": {
+      "eas": {
+        "projectId": "partyfinder-murcia"
+      }
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.partyfinder.app",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
+      "package": "com.partyfinder.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/IconPartyFinder.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "favicon": "./assets/IconPartyFinder.png",
       "bundler": "metro"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/IconPartyFinder.png",
+          "color": "#ffffff",
+          "sounds": []
+        }
+      ]
     ]
   }
 }

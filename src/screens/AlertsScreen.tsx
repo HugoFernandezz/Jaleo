@@ -9,6 +9,7 @@ import {
     ScrollView,
     Alert,
     Dimensions,
+    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -86,14 +87,89 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({ navigation }) => {
     };
 
     const handleDeleteAlert = (alert: NotificationAlert) => {
-        Alert.alert(
-            'Eliminar alerta',
-            '¿Seguro que quieres eliminar esta alerta?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Eliminar', style: 'destructive', onPress: () => removeAlert(alert.id) },
-            ]
-        );
+        // #region agent log
+        const logPath = Platform.OS === 'web' 
+            ? '/.cursor/debug.log' 
+            : require('path').join(require('os').homedir(), '.cursor', 'debug.log');
+        try {
+            const logEntry = {
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'A',
+                location: 'AlertsScreen.tsx:88',
+                message: 'handleDeleteAlert called',
+                data: {
+                    alertId: alert.id,
+                    alertDate: alert.date,
+                    platform: Platform.OS,
+                    timestamp: Date.now()
+                },
+                timestamp: Date.now()
+            };
+            if (Platform.OS === 'web' && typeof fetch !== 'undefined') {
+                fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(logEntry)
+                }).catch(() => {});
+            }
+        } catch (e) {}
+        // #endregion
+        
+        if (Platform.OS === 'web') {
+            // En web, usar confirm nativo que es más confiable
+            if (typeof window !== 'undefined' && window.confirm('¿Seguro que quieres eliminar esta alerta?')) {
+                // #region agent log
+                try {
+                    const logEntry = {
+                        sessionId: 'debug-session',
+                        runId: 'run1',
+                        hypothesisId: 'A',
+                        location: 'AlertsScreen.tsx:88',
+                        message: 'handleDeleteAlert confirmed (web)',
+                        data: { alertId: alert.id },
+                        timestamp: Date.now()
+                    };
+                    if (typeof fetch !== 'undefined') {
+                        fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(logEntry)
+                        }).catch(() => {});
+                    }
+                } catch (e) {}
+                // #endregion
+                removeAlert(alert.id);
+            }
+        } else {
+            Alert.alert(
+                'Eliminar alerta',
+                '¿Seguro que quieres eliminar esta alerta?',
+                [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { 
+                        text: 'Eliminar', 
+                        style: 'destructive', 
+                        onPress: () => {
+                            // #region agent log
+                            try {
+                                const logEntry = {
+                                    sessionId: 'debug-session',
+                                    runId: 'run1',
+                                    hypothesisId: 'A',
+                                    location: 'AlertsScreen.tsx:88',
+                                    message: 'handleDeleteAlert confirmed (mobile)',
+                                    data: { alertId: alert.id },
+                                    timestamp: Date.now()
+                                };
+                            } catch (e) {}
+                            // #endregion
+                            removeAlert(alert.id);
+                        }
+                    },
+                ]
+            );
+        }
     };
 
     const renderAlert = ({ item }: { item: NotificationAlert }) => (
@@ -122,8 +198,16 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({ navigation }) => {
                         />
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => handleDeleteAlert(item)}
+                        style={[
+                            styles.deleteButton,
+                            Platform.OS === 'web' && styles.deleteButtonWeb
+                        ]}
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            handleDeleteAlert(item);
+                        }}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                         <Ionicons name="trash-outline" size={20} color="#EF4444" />
                     </TouchableOpacity>
@@ -354,6 +438,12 @@ const styles = StyleSheet.create({
         height: 36,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    deleteButtonWeb: {
+        minWidth: 44,
+        minHeight: 44,
+        zIndex: 10,
+        position: 'relative',
     },
     emptyState: {
         flex: 1,

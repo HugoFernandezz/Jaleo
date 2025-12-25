@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { notificationService } from '../services/notificationService';
 import { NotificationAlert } from '../types/notifications';
 
 const ALERTS_STORAGE_KEY = '@partyfinder_alerts';
@@ -73,12 +74,104 @@ export const AlertsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const updatedAlerts = [...alerts, newAlert];
         setAlerts(updatedAlerts);
         await saveAlerts(updatedAlerts);
+
+        // Register FCM token for this alert
+        const token = await notificationService.getStoredToken();
+        if (!token) {
+            // Request permissions and get token if not available
+            const newToken = await notificationService.requestPermissions();
+            if (newToken) {
+                await notificationService.registerAlertToken(newAlert.id, newToken);
+            }
+        } else {
+            await notificationService.registerAlertToken(newAlert.id, token);
+        }
     }, [alerts]);
 
     const removeAlert = useCallback(async (id: string) => {
+        // #region agent log
+        try {
+            const logEntry = {
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'A',
+                location: 'AlertsContext.tsx:78',
+                message: 'removeAlert called',
+                data: {
+                    alertId: id,
+                    alertsCountBefore: alerts.length,
+                    timestamp: Date.now()
+                },
+                timestamp: Date.now()
+            };
+            if (typeof fetch !== 'undefined') {
+                fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(logEntry)
+                }).catch(() => {});
+            }
+        } catch (e) {}
+        // #endregion
+        
         const updatedAlerts = alerts.filter(alert => alert.id !== id);
+        
+        // #region agent log
+        try {
+            const logEntry = {
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'A',
+                location: 'AlertsContext.tsx:78',
+                message: 'removeAlert filtered',
+                data: {
+                    alertId: id,
+                    alertsCountBefore: alerts.length,
+                    alertsCountAfter: updatedAlerts.length,
+                    timestamp: Date.now()
+                },
+                timestamp: Date.now()
+            };
+            if (typeof fetch !== 'undefined') {
+                fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(logEntry)
+                }).catch(() => {});
+            }
+        } catch (e) {}
+        // #endregion
+        
         setAlerts(updatedAlerts);
         await saveAlerts(updatedAlerts);
+        
+        // Unregister FCM tokens for this alert
+        await notificationService.unregisterAllAlertTokens(id);
+        
+        // #region agent log
+        try {
+            const logEntry = {
+                sessionId: 'debug-session',
+                runId: 'run1',
+                hypothesisId: 'A',
+                location: 'AlertsContext.tsx:78',
+                message: 'removeAlert completed',
+                data: {
+                    alertId: id,
+                    alertsCountAfter: updatedAlerts.length,
+                    timestamp: Date.now()
+                },
+                timestamp: Date.now()
+            };
+            if (typeof fetch !== 'undefined') {
+                fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(logEntry)
+                }).catch(() => {});
+            }
+        } catch (e) {}
+        // #endregion
     }, [alerts]);
 
     const toggleAlert = useCallback(async (id: string) => {

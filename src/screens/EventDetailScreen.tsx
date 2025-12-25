@@ -8,6 +8,7 @@ import {
   Linking,
   Dimensions,
   Animated,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +35,11 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   const [imageError, setImageError] = useState(false);
   const { colors, isDark } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
+  
+  const Container = Platform.OS === 'web' ? View : SafeAreaView;
+  const containerProps = Platform.OS === 'web' 
+    ? { style: [styles.container, styles.containerWeb, { backgroundColor: colors.background }] }
+    : { style: [styles.container, { backgroundColor: colors.background }] };
 
   // Formatear fecha
   const formatDate = (dateString: string) => {
@@ -169,7 +175,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <Container {...containerProps}>
       {/* Header Image - Fixed */}
       <View style={styles.imageContainer}>
         <Image
@@ -198,6 +204,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
         bounces={true}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingTop: HEADER_HEIGHT - 32 }}
+        style={Platform.OS === 'web' ? styles.scrollViewWeb : undefined}
       >
 
         {/* Contenido */}
@@ -318,7 +325,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
           )}
         </View>
       </Animated.ScrollView>
-    </View>
+    </Container>
   );
 };
 
@@ -326,6 +333,22 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  containerWeb: {
+    height: '100vh',
+    width: '100%',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: 'hidden',
+  },
+  scrollViewWeb: {
+    flex: 1,
+    height: '100%',
+    width: '100%',
+    WebkitOverflowScrolling: 'touch' as any,
   },
   imageContainer: {
     position: 'absolute',
