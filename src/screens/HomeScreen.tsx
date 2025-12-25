@@ -49,7 +49,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [selectedVenue, setSelectedVenue] = useState<string>('Todas');
   const [availableVenues, setAvailableVenues] = useState<string[]>(['Todas']);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [showUpdateToast, setShowUpdateToast] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
 
   const { alerts } = useAlerts();
@@ -61,25 +60,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     }
   }, [parties, alerts]);
 
-  const fadeAnim = useMemo(() => new Animated.Value(0), []);
-
-  const triggerUpdateToast = useCallback(() => {
-    setShowUpdateToast(true);
-    Animated.sequence([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.delay(3000),
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setShowUpdateToast(false));
-  }, [fadeAnim]);
-
   useEffect(() => {
     loadParties();
 
@@ -87,7 +67,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     const unsubscribe = apiService.subscribeToUpdates((data) => {
       if (data.parties.length > 0) {
         setParties(data.parties);
-        triggerUpdateToast();
       }
     });
 
@@ -393,20 +372,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         }
       />
 
-
-      {/* Toast de Actualización (Debug Temporal) */}
-      {showUpdateToast && (
-        <Animated.View
-          style={[
-            styles.updateToast,
-            { opacity: fadeAnim }
-          ]}
-        >
-          <Ionicons name="cloud-download-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.updateToastText}>Base de datos actualizada</Text>
-        </Animated.View>
-      )}
-
       {/* Calendar Modal */}
       <Modal
         visible={showCalendar}
@@ -605,28 +570,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
-  },
-  updateToast: {
-    position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
-    backgroundColor: '#10B981',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    gap: 8,
-  },
-  updateToastText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
   },
   dateSeparator: {
     borderTopWidth: 1,
