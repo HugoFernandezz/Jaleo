@@ -17,6 +17,11 @@ const VENUE_ALIASES: { [key: string]: string } = {
   "Dodo club": "Dodo Club",
   "OW CLUB": "OW Club",
   "Ow Club": "OW Club",
+  "Sala Rem": "Sala Rem",
+  "SALA REM": "Sala Rem",
+  "sala rem": "Sala Rem",
+  "El Club By Odiseo": "El Club By Odiseo",
+  "EL CLUB BY ODISEO": "El Club By Odiseo",
   // Añadir más alias aquí según se detecten
 };
 
