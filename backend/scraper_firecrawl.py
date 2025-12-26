@@ -84,8 +84,13 @@ def extract_events_from_html(html: str, venue_url: str) -> List[Dict]:
     soup = BeautifulSoup(html, 'html.parser')
     venue_slug = venue_url.split('/')[-2] if '/events' in venue_url else ''
     
+    # Debug: contar enlaces potenciales
+    all_event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
+    print(f"   🔍 Debug: {len(all_event_links)} enlaces con '/events/' encontrados")
+    
     # ESTRATEGIA 1: Enlaces con aria-label (Luminata, Odiseo)
     event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
+    print(f"   🔍 Debug Estrategia 1: {len(event_links)} enlaces con 4+ '/' encontrados")
     
     for link in event_links:
         try:
@@ -132,8 +137,10 @@ def extract_events_from_html(html: str, venue_url: str) -> List[Dict]:
     # ESTRATEGIA 2: Componentes personalizados / data-testid (Dodo Club)
     if not events:
         event_cards = soup.find_all(attrs={"data-testid": ["event-card", "event-card-name"]})
+        print(f"   🔍 Debug Estrategia 2a: {len(event_cards)} elementos con data-testid encontrados")
         if not event_cards:
             event_cards = soup.find_all('div', class_=lambda x: x and 'event' in x and 'card' in x)
+            print(f"   🔍 Debug Estrategia 2b: {len(event_cards)} divs con 'event' y 'card' encontrados")
 
         for card in event_cards:
             try:
@@ -154,18 +161,32 @@ def extract_events_from_html(html: str, venue_url: str) -> List[Dict]:
             except:
                 continue
 
-    # ESTRATEGIA 3: Fallback Simple
+    # ESTRATEGIA 3: Fallback Simple (más permisivo - cualquier enlace con /events/)
     if not events:
-        for link in soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4):
+        print(f"   🔍 Debug Estrategia 3: Intentando fallback simple...")
+        for link in soup.find_all('a', href=lambda x: x and '/events/' in x):
             href = link.get('href', '')
             if any(e['url'] == href for e in events): continue
+            
+            # Extraer código del evento de la URL
+            code = href.split('/')[-1] if '/' in href else href
+            # Obtener nombre del enlace o del texto
+            name = link.get('aria-label', '') or link.get_text(strip=True) or 'Evento'
+            
+            # Si no tiene nombre útil, intentar obtenerlo del href o elementos cercanos
+            if name == 'Evento' or not name:
+                # Buscar en el texto del enlace o elementos padre
+                parent_text = link.find_parent().get_text(strip=True) if link.find_parent() else ''
+                if parent_text and len(parent_text) > 5:
+                    name = parent_text[:100]  # Limitar longitud
             
             events.append({
                 'url': href,
                 'venue_slug': venue_slug,
-                'name': link.get('aria-label', link.get_text(strip=True) or 'Evento'),
-                'code': href.split('/')[-1]
+                'name': name,
+                'code': code
             })
+        print(f"   🔍 Debug Estrategia 3: {len(events)} eventos encontrados con fallback")
 
     return events
 
@@ -205,17 +226,23 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
         events = extract_events_from_html(html, url)
         
         # Si sigue sin pillar nada, intentar un segundo intento con JS más agresivo
-        if not events and "dodo" in url.lower():
+        # Aplicar a Dodo Club y Sala Rem (ambos pueden tener estructuras similares o necesitar más tiempo)
+        if not events and ("dodo" in url.lower() or "sala-rem" in url.lower()):
             print("   ⚠️ No detectados en primer intento. Reintentando con scroll profundo...")
             result = firecrawl.scrape(
                 url,
                 formats=["html"],
                 actions=[
+                    {"type": "wait", "milliseconds": 5000},
+                    {"type": "scroll", "direction": "down", "amount": 1000},
+                    {"type": "wait", "milliseconds": 5000},
                     {"type": "scroll", "direction": "down", "amount": 1000},
                     {"type": "wait", "milliseconds": 5000}
-                ]
+                ],
+                wait_for=10000
             )
             html = result.html or ""
+            print(f"   HTML segundo intento: {len(html)} bytes")
             events = extract_events_from_html(html, url)
 
         print(f"   ✅ {len(events)} eventos encontrados")
@@ -338,8 +365,16 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
         return event
     
     # Hacer URL absoluta si es relativa
+    # Detectar el dominio correcto basándose en el venue_slug o la URL original
     if not event_url.startswith('http'):
-        event_url = f"https://site.fourvenues.com{event_url}"
+        venue_slug = event.get('venue_slug', '')
+        # Si el evento es de Sala Rem (web.fourvenues.com), usar ese dominio
+        if 'sala-rem' in venue_slug.lower() or 'sala-rem' in event_url.lower():
+            base_url = "https://web.fourvenues.com"
+        else:
+            base_url = "https://site.fourvenues.com"
+        
+        event_url = f"{base_url}{event_url}"
     
     try:
         # Solicitar HTML, MARKDOWN y RAWHTML
