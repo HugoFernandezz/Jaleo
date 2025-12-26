@@ -50,3 +50,7 @@ backend/data/*.html
 __pycache__/
 *.pyc
 backend/venv/
+
+# Debug and logs
+.cursor/
+job-logs.txt
