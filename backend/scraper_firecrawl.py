@@ -1562,6 +1562,34 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
     
     # Obtener detalles de eventos si se solicita
     if get_details and all_events:
+        # Deduplicar eventos antes de scrapear detalles (por URL o código)
+        # Esto es especialmente importante para Sala Rem donde construimos múltiples combinaciones
+        seen_urls = set()
+        seen_codes = set()
+        unique_events = []
+        
+        for event in all_events:
+            event_url = event.get('url', '')
+            event_code = event.get('code', '')
+            
+            # Si ya vimos esta URL o este código, saltar
+            if event_url in seen_urls:
+                print(f"   ⚠️ Evento duplicado (URL): {event.get('name', 'N/A')} - {event_url[:80]}...")
+                continue
+            if event_code and event_code in seen_codes:
+                print(f"   ⚠️ Evento duplicado (código): {event.get('name', 'N/A')} - código: {event_code}")
+                continue
+            
+            seen_urls.add(event_url)
+            if event_code:
+                seen_codes.add(event_code)
+            unique_events.append(event)
+        
+        if len(unique_events) < len(all_events):
+            print(f"   ✅ Eventos deduplicados: {len(all_events)} → {len(unique_events)}")
+        
+        all_events = unique_events  # Usar eventos únicos
+        
         print(f"\n🎫 Obteniendo detalles de {len(all_events)} eventos...")
         for i, event in enumerate(all_events):
             print(f"   [{i+1}/{len(all_events)}] {event.get('name', 'N/A')[:40]}...")
