@@ -510,7 +510,30 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                             
                             date_parts = evt['date'].split('-')
                             date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                            url_slug = f"{evt['slug']}--{date_str}-{code}"
+                            
+                            # Mejorar generación del slug para Sala Rem
+                            # El formato es: primera-parte--segunda-parte--fecha-codigo
+                            # Ejemplo: friday-session--sala-rem--26-12-2025-EI7Q
+                            slug = evt['slug']
+                            event_name_lower = evt['name'].lower()
+                            
+                            # Detectar patrón común: "SESSION | SALA REM" o "SESSION / REM CLUB"
+                            # Dividir en dos partes: antes y después de "|" o "/"
+                            if '|' in evt['name'] or '/' in evt['name']:
+                                # Dividir por "|" o "/"
+                                parts = re.split(r'[|/]', evt['name'], 1)
+                                if len(parts) == 2:
+                                    part1 = parts[0].strip().lower()
+                                    part2 = parts[1].strip().lower()
+                                    # Limpiar y generar slugs
+                                    slug1 = re.sub(r'[^\w\s-]', '', part1)
+                                    slug1 = re.sub(r'\s+', '-', slug1).strip('-')
+                                    slug2 = re.sub(r'[^\w\s-]', '', part2)
+                                    slug2 = re.sub(r'\s+', '-', slug2).strip('-')
+                                    # Combinar con doble guion
+                                    slug = f"{slug1}--{slug2}"
+                            
+                            url_slug = f"{slug}--{date_str}-{code}"
                             test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
                             
                             # Guardar la fecha en el evento para usarla después
