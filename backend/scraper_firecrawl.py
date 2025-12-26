@@ -338,6 +338,75 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                                 'code': code
                             })
                             print(f"   🔍 Evento encontrado en HTML: {code} - {event_url[:80]}...")
+                
+                # ESTRATEGIA FINAL: Si aún no hay eventos, construir URLs basándose en nombres y fechas del markdown
+                # y buscar códigos en el HTML de forma más amplia
+                if not events and markdown and html:
+                    print(f"   🔍 Estrategia final: Construir URLs desde markdown y buscar códigos en HTML...")
+                    # Extraer nombres de eventos y fechas del markdown
+                    # Formato: ## Fri26Dec ... FRIDAY SESSION | SALA REM
+                    event_info = []
+                    lines = markdown.split('\n')
+                    current_date = None
+                    for i, line in enumerate(lines):
+                        # Detectar fechas (## Fri26Dec)
+                        date_match = re.search(r'##\s*(\w{3})(\d{1,2})(\w{3})', line)
+                        if date_match:
+                            day_name = date_match.group(1)  # Fri, Sat, Wed
+                            day_num = date_match.group(2)   # 26, 27, 31
+                            month = date_match.group(3)     # Dec
+                            # Convertir a formato fecha
+                            month_map = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+                                       'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
+                            month_num = month_map.get(month, '12')
+                            current_date = f"{day_num}-{month_num}-2025"
+                        
+                        # Detectar nombres de eventos (líneas que no son fechas ni horas)
+                        if current_date and line.strip() and not line.startswith('##') and not re.match(r'^\d{1,2}:\d{2}', line.strip()):
+                            event_name = line.strip()
+                            # Limpiar emojis y caracteres especiales para el slug
+                            slug_name = re.sub(r'[^\w\s-]', '', event_name.lower())
+                            slug_name = re.sub(r'\s+', '-', slug_name).strip('-')
+                            event_info.append({
+                                'name': event_name,
+                                'slug': slug_name,
+                                'date': current_date
+                            })
+                    
+                    print(f"   🔍 Eventos detectados en markdown: {len(event_info)}")
+                    for evt in event_info:
+                        print(f"   🔍   - {evt['name']} ({evt['date']})")
+                    
+                    # Buscar códigos de 4 caracteres en el HTML que puedan ser códigos de eventos
+                    # Los códigos suelen aparecer cerca de "sala-rem" o en atributos data-*
+                    potential_codes = re.findall(r'[^a-zA-Z0-9]([A-Z0-9]{4})[^a-zA-Z0-9]', html)
+                    # Filtrar códigos que parezcan válidos (tienen letras y números)
+                    valid_codes = [c for c in set(potential_codes) if any(x.isalpha() for x in c) and any(x.isdigit() for x in c)]
+                    print(f"   🔍 Códigos potenciales en HTML: {valid_codes[:10]}")
+                    
+                    # Para cada evento, intentar construir URL con cada código potencial
+                    # y verificar si la URL existe en el HTML
+                    for evt in event_info:
+                        for code in valid_codes:
+                            # Construir slug basándose en el nombre y fecha
+                            # Formato: nombre--fecha-CODIGO
+                            date_parts = evt['date'].split('-')
+                            date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
+                            url_slug = f"{evt['slug']}--{date_str}-{code}"
+                            test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
+                            
+                            # Verificar si esta URL o el código aparece en el HTML cerca del nombre del evento
+                            event_name_clean = re.sub(r'[^\w\s]', '', evt['name']).lower()
+                            pattern = rf'.{{0,200}}{re.escape(event_name_clean[:20])}.{{0,200}}{code}.{{0,200}}|.{{0,200}}{code}.{{0,200}}{re.escape(event_name_clean[:20])}.{{0,200}}'
+                            if re.search(pattern, html, re.IGNORECASE):
+                                events.append({
+                                    'url': test_url,
+                                    'venue_slug': venue_slug,
+                                    'name': evt['name'],
+                                    'code': code
+                                })
+                                print(f"   🔍 Evento construido: {evt['name']} - {code} - {test_url[:80]}...")
+                                break  # Usar solo el primer código que coincida
             else:
                 # Para otras discotecas: buscar /events/CODIGO
                 event_url_patterns = re.findall(r'/events/([A-Z0-9-]{4,})', markdown)
