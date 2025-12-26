@@ -350,9 +350,14 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                         html_event_urls = re.findall(r'https?://[^"\s<>]+sala-rem/events/[^"\s<>]+', html_to_search, re.IGNORECASE)
                         html_event_urls += re.findall(r'/es/sala-rem/events/[^"\s<>\)]+', html_to_search, re.IGNORECASE)
                         
-                        print(f"   🔍 URLs de eventos encontradas: {len(html_event_urls)}")
+                        print(f"   🔍 URLs de eventos encontradas en HTML: {len(html_event_urls)}")
                         
-                        for event_url in set(html_event_urls):
+                        # Si encontramos URLs completas, usarlas directamente (más confiable)
+                        # Pero limitar a las primeras N para evitar duplicados
+                        unique_urls = list(set(html_event_urls))[:10]  # Máximo 10 URLs únicas
+                        print(f"   🔍 Procesando {len(unique_urls)} URLs únicas de eventos...")
+                        
+                        for event_url in unique_urls:
                             # Hacer URL absoluta si es relativa
                             if not event_url.startswith('http'):
                                 event_url = f"https://web.fourvenues.com{event_url}"
@@ -1098,15 +1103,81 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                 image_found = True
                 print(f"      📷 Imagen encontrada (og:image): {img_url[:80]}...")
         
-        # 2. Buscar en schema.org JSON-LD (puede tener imagen de mayor calidad)
+        # 2. Buscar en schema.org JSON-LD específicamente en el objeto Event (más preciso)
         if not image_found and raw_html:
-            schema_image_match = re.search(r'"image"\s*:\s*"([^"]+)"', raw_html)
-            if schema_image_match:
-                img_url = schema_image_match.group(1)
-                if 'fourvenues.com' in img_url:
-                    event['image'] = img_url
-                    image_found = True
-                    print(f"      📷 Imagen encontrada (schema): {img_url[:80]}...")
+            # Buscar bloques script con application/ld+json
+            soup_temp = BeautifulSoup(raw_html, 'html.parser')
+            scripts = soup_temp.find_all('script', type='application/ld+json')
+            
+            for script in scripts:
+                try:
+                    if not script.string:
+                        continue
+                    content = script.string.strip()
+                    data = json.loads(content)
+                    
+                    # Schema.org suele tener una lista o un objeto @graph
+                    items = []
+                    if isinstance(data, list):
+                        items = data
+                    elif isinstance(data, dict):
+                        if '@graph' in data:
+                            items = data['@graph']
+                        else:
+                            items = [data]
+                    
+                    # Buscar específicamente en objetos de tipo Event
+                    for item in items:
+                        item_type = item.get('@type', '')
+                        # #region agent log
+                        debug_log("debug-session", "run1", "G", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Buscando imagen en schema.org", {
+                            "item_type": item_type,
+                            "has_image": 'image' in item,
+                            "image_value": str(item.get('image', ''))[:100] if item.get('image') else None
+                        })
+                        # #endregion
+                        
+                        if item.get('@type') == 'Event' or 'Event' in str(item.get('@type', '')):
+                            # El evento puede tener una imagen directamente
+                            event_image = item.get('image')
+                            if event_image:
+                                # Puede ser un string o un objeto con url
+                                if isinstance(event_image, str):
+                                    img_url = event_image
+                                elif isinstance(event_image, dict):
+                                    img_url = event_image.get('url', '')
+                                elif isinstance(event_image, list) and len(event_image) > 0:
+                                    img_url = event_image[0] if isinstance(event_image[0], str) else event_image[0].get('url', '')
+                                else:
+                                    continue
+                                
+                                # #region agent log
+                                debug_log("debug-session", "run1", "H", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Imagen encontrada en schema Event", {
+                                    "img_url": img_url[:150],
+                                    "is_fourvenues": 'fourvenues.com' in img_url if img_url else False
+                                })
+                                # #endregion
+                                
+                                if img_url and 'fourvenues.com' in img_url:
+                                    event['image'] = img_url
+                                    image_found = True
+                                    print(f"      📷 Imagen encontrada (schema Event): {img_url[:80]}...")
+                                    break
+                    
+                    if image_found:
+                        break
+                except:
+                    continue
+            
+            # Fallback: buscar cualquier imagen en schema.org (método anterior)
+            if not image_found:
+                schema_image_match = re.search(r'"image"\s*:\s*"([^"]+)"', raw_html)
+                if schema_image_match:
+                    img_url = schema_image_match.group(1)
+                    if 'fourvenues.com' in img_url:
+                        event['image'] = img_url
+                        image_found = True
+                        print(f"      📷 Imagen encontrada (schema fallback): {img_url[:80]}...")
         
         # 3. Buscar imagen principal en el HTML (fallback)
         if not image_found and soup:
@@ -1643,12 +1714,25 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
         seen_name_date = set()  # Para Sala Rem: (nombre_normalizado, fecha)
         unique_events = []
         
+        print(f"\n🔍 Deduplicando {len(all_events)} eventos...")
+        
         for event in all_events:
             event_url = event.get('url', '')
             event_code = event.get('code', '')
             event_name = event.get('name', '')
             venue_slug = event.get('venue_slug', '')
             is_sala_rem = 'sala-rem' in venue_slug.lower()
+            
+            # #region agent log
+            debug_log("debug-session", "run1", "A", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Procesando evento para deduplicación", {
+                "event_name": event_name,
+                "event_url": event_url[:100],
+                "event_code": event_code,
+                "is_sala_rem": is_sala_rem,
+                "_date_parts": event.get('_date_parts'),
+                "date_text": event.get('date_text')
+            })
+            # #endregion
             
             # Para Sala Rem: deduplicar por nombre + fecha
             if is_sala_rem:
@@ -1674,27 +1758,67 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
                                 event_date = f"{day}-{month_num}-2025"
                                 break
                 
+                # #region agent log
+                debug_log("debug-session", "run1", "B", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Deduplicación Sala Rem", {
+                    "name_normalized": name_normalized,
+                    "event_date": event_date,
+                    "name_date_key": (name_normalized, event_date) if event_date else None,
+                    "seen_name_date": list(seen_name_date)
+                })
+                # #endregion
+                
                 if event_date:
                     name_date_key = (name_normalized, event_date)
                     if name_date_key in seen_name_date:
                         print(f"   ⚠️ Evento duplicado (nombre+fecha): {event_name} - {event_date} - código: {event_code}")
+                        # #region agent log
+                        debug_log("debug-session", "run1", "C", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (Sala Rem)", {
+                            "event_name": event_name,
+                            "event_date": event_date,
+                            "name_date_key": name_date_key
+                        })
+                        # #endregion
                         continue
                     seen_name_date.add(name_date_key)
+                    print(f"   ✅ Evento único (Sala Rem): {event_name} - {event_date} - código: {event_code}")
+                else:
+                    print(f"   ⚠️ No se pudo extraer fecha para {event_name}, usando URL para deduplicación")
             
             # Si ya vimos esta URL, saltar
             if event_url in seen_urls:
                 print(f"   ⚠️ Evento duplicado (URL): {event.get('name', 'N/A')} - {event_url[:80]}...")
+                # #region agent log
+                debug_log("debug-session", "run1", "D", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (URL)", {
+                    "event_name": event_name,
+                    "event_url": event_url[:100]
+                })
+                # #endregion
                 continue
             
             # Para otros venues: deduplicar por código
             if not is_sala_rem and event_code and event_code in seen_codes:
                 print(f"   ⚠️ Evento duplicado (código): {event.get('name', 'N/A')} - código: {event_code}")
+                # #region agent log
+                debug_log("debug-session", "run1", "E", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (código)", {
+                    "event_name": event_name,
+                    "event_code": event_code
+                })
+                # #endregion
                 continue
             
             seen_urls.add(event_url)
             if event_code:
                 seen_codes.add(event_code)
             unique_events.append(event)
+            print(f"   ✅ Evento único añadido: {event_name} - {event_code}")
+            # #region agent log
+            debug_log("debug-session", "run1", "F", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento único añadido", {
+                "event_name": event_name,
+                "event_code": event_code,
+                "event_url": event_url[:100],
+                "total_unique": len(unique_events)
+            })
+            # #endregion
         
         if len(unique_events) < len(all_events):
             print(f"   ✅ Eventos deduplicados: {len(all_events)} → {len(unique_events)}")
