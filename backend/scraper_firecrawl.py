@@ -192,8 +192,15 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
     # ESTRATEGIA 4: Extraer desde markdown si está disponible y no encontramos eventos
     if not events and markdown:
         print(f"   🔍 Intentando extraer desde markdown ({len(markdown)} caracteres)...")
+        # Debug: mostrar preview del markdown
+        if len(markdown) > 0:
+            preview = markdown[:500] if len(markdown) > 500 else markdown
+            print(f"   🔍 Markdown preview: {preview[:200]}...")
+        
         # Buscar enlaces en markdown (formato: [texto](url))
         markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', markdown)
+        print(f"   🔍 Markdown links encontrados: {len(markdown_links)}")
+        
         for link_text, link_url in markdown_links:
             if '/events/' in link_url:
                 # Extraer código del evento
@@ -213,6 +220,27 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                         'name': link_text.strip(),
                         'code': code
                     })
+        
+        # Si aún no hay eventos, buscar URLs de eventos directamente en el texto markdown
+        if not events:
+            print(f"   🔍 Buscando URLs de eventos directamente en markdown...")
+            # Buscar patrones como /es/sala-rem/events/CODIGO o /events/CODIGO
+            event_url_patterns = re.findall(r'(?:/es/sala-rem/events/|/events/)([A-Z0-9-]{4,})', markdown)
+            for code in set(event_url_patterns):
+                # Construir URL completa
+                if 'sala-rem' in venue_slug.lower():
+                    event_url = f"https://web.fourvenues.com/es/sala-rem/events/{code}"
+                else:
+                    event_url = f"https://site.fourvenues.com/es/{venue_slug}/events/{code}"
+                
+                events.append({
+                    'url': event_url,
+                    'venue_slug': venue_slug,
+                    'name': f"Evento {code}",  # Nombre genérico, se actualizará al scrapear detalles
+                    'code': code
+                })
+            print(f"   🔍 URLs directas encontradas: {len(event_url_patterns)}")
+        
         print(f"   🔍 Markdown: {len(events)} eventos encontrados")
 
     return events
@@ -279,17 +307,21 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
         # Aplicar a Dodo Club y Sala Rem (ambos pueden tener estructuras similares o necesitar más tiempo)
         if not events and ("dodo" in url.lower() or "sala-rem" in url.lower()):
             print("   ⚠️ No detectados en primer intento. Reintentando con scroll profundo...")
+            # Para Sala Rem, usar también markdown en el segundo intento
+            is_sala_rem_retry = "sala-rem" in url.lower()
             result = firecrawl.scrape(
                 url,
-                formats=["html"],
+                formats=["html", "markdown"] if is_sala_rem_retry else ["html"],
                 actions=[
+                    {"type": "wait", "milliseconds": 10000},  # Más tiempo para Sala Rem
+                    {"type": "scroll", "direction": "down", "amount": 1000},
                     {"type": "wait", "milliseconds": 5000},
                     {"type": "scroll", "direction": "down", "amount": 1000},
                     {"type": "wait", "milliseconds": 5000},
                     {"type": "scroll", "direction": "down", "amount": 1000},
                     {"type": "wait", "milliseconds": 5000}
                 ],
-                wait_for=10000
+                wait_for=15000 if is_sala_rem_retry else 10000
             )
             html = result.html or ""
             markdown = result.markdown or "" if hasattr(result, 'markdown') else ""
