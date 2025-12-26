@@ -442,39 +442,49 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                     for evt in valid_events:
                         print(f"   🔍   - {evt['name']} ({evt['date']})")
                     
-                    # Emparejar eventos con códigos de forma dinámica
-                    # Estrategia: construir todas las combinaciones posibles y dejar que el scraper de detalles
-                    # verifique cuáles URLs son válidas. Esto funciona para cualquier número de eventos y códigos.
+                    # ESTRATEGIA ESCALABLE: Emparejar eventos con códigos por orden de aparición
+                    # En lugar de construir todas las combinaciones (N×M), emparejamos por posición
+                    # Esto es más eficiente y escalable
                     if valid_events and valid_codes:
-                        print(f"   🔍 Construyendo combinaciones dinámicas: {len(valid_events)} eventos x {len(valid_codes)} códigos = {len(valid_events) * len(valid_codes)} URLs posibles")
+                        print(f"   🔍 Emparejando {len(valid_events)} eventos con {len(valid_codes)} códigos por orden de aparición...")
                         
-                        # Construir todas las combinaciones posibles
-                        for evt in valid_events:
-                            for code in valid_codes:
-                                date_parts = evt['date'].split('-')
-                                date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                                url_slug = f"{evt['slug']}--{date_str}-{code}"
-                                test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
-                                
-                                # Guardar la fecha en el evento para usarla después
-                                # Formato: "26-12-2025" -> convertir a formato estándar para date_text
-                                day, month, year = date_parts[0], date_parts[1], date_parts[2]
-                                month_names = {'01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
-                                             '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
-                                             '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'}
-                                date_text = f"{day} {month_names.get(month, 'diciembre')}"
-                                
-                                events.append({
-                                    'url': test_url,
-                                    'venue_slug': venue_slug,
-                                    'name': evt['name'],
-                                    'code': code,
-                                    'date_text': date_text,  # Guardar fecha parseable
-                                    '_date_parts': {'day': day, 'month': month, 'year': year}  # Guardar partes para uso directo
-                                })
-                                print(f"   🔍 URL construida: {evt['name']} - {code} - fecha: {date_text} - {test_url[:100]}...")
+                        # Emparejar por posición: primer evento con primer código, segundo con segundo, etc.
+                        # Si hay más eventos que códigos, los eventos extra no se procesan
+                        # Si hay más códigos que eventos, los códigos extra se ignoran
+                        max_pairs = min(len(valid_events), len(valid_codes))
                         
-                        print(f"   🔍 Total URLs construidas: {len(events)} (el scraper de detalles validará cuáles son válidas)")
+                        for i in range(max_pairs):
+                            evt = valid_events[i]
+                            code = valid_codes[i]
+                            
+                            date_parts = evt['date'].split('-')
+                            date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
+                            url_slug = f"{evt['slug']}--{date_str}-{code}"
+                            test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
+                            
+                            # Guardar la fecha en el evento para usarla después
+                            day, month, year = date_parts[0], date_parts[1], date_parts[2]
+                            month_names = {'01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
+                                         '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
+                                         '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'}
+                            date_text = f"{day} {month_names.get(month, 'diciembre')}"
+                            
+                            events.append({
+                                'url': test_url,
+                                'venue_slug': venue_slug,
+                                'name': evt['name'],
+                                'code': code,
+                                'date_text': date_text,
+                                '_date_parts': {'day': day, 'month': month, 'year': year}
+                            })
+                            print(f"   🔍 URL construida (orden {i+1}): {evt['name']} - {code} - fecha: {date_text} - {test_url[:100]}...")
+                        
+                        if len(valid_events) > len(valid_codes):
+                            print(f"   ⚠️ {len(valid_events) - len(valid_codes)} eventos sin código (más eventos que códigos)")
+                        elif len(valid_codes) > len(valid_events):
+                            print(f"   ⚠️ {len(valid_codes) - len(valid_events)} códigos sin evento (más códigos que eventos)")
+                        
+                        print(f"   🔍 Total URLs construidas: {len(events)} (1 URL por evento, emparejado por orden)")
                     
             else:
                 # Para otras discotecas: buscar /events/CODIGO
@@ -538,19 +548,24 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
             )
         
         html = result.html or ""
+        raw_html = getattr(result, 'raw_html', None) or ""
         markdown = result.markdown or "" if hasattr(result, 'markdown') else ""
         status = result.metadata.status_code if result.metadata else "N/A"
         
         print(f"   Status: {status}")
         print(f"   HTML: {len(html)} bytes")
+        if raw_html:
+            print(f"   Raw HTML: {len(raw_html)} bytes")
         if markdown:
             print(f"   Markdown: {len(markdown)} caracteres")
         
-        if not html:
+        if not html and not raw_html:
             print("   ❌ No se recibió HTML")
             return []
         
-        events = extract_events_from_html(html, url, markdown)
+        # Para Sala Rem, usar raw_html si está disponible (puede tener más información después del JS)
+        html_to_use = raw_html if is_sala_rem and raw_html and len(raw_html) > len(html) else html
+        events = extract_events_from_html(html_to_use, url, markdown, raw_html=raw_html)
         
         # Si sigue sin pillar nada, intentar un segundo intento con JS más agresivo
         # Aplicar a Dodo Club y Sala Rem (ambos pueden tener estructuras similares o necesitar más tiempo)
