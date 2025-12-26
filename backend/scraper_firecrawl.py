@@ -188,6 +188,32 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                 'code': code
             })
         print(f"   🔍 Debug Estrategia 3: {len(events)} eventos encontrados con fallback")
+    
+    # ESTRATEGIA 4: Extraer desde markdown si está disponible y no encontramos eventos
+    if not events and markdown:
+        print(f"   🔍 Intentando extraer desde markdown ({len(markdown)} caracteres)...")
+        # Buscar enlaces en markdown (formato: [texto](url))
+        markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', markdown)
+        for link_text, link_url in markdown_links:
+            if '/events/' in link_url:
+                # Extraer código del evento
+                code_match = re.search(r'/events/([A-Z0-9-]+)', link_url)
+                if code_match:
+                    code = code_match.group(1)
+                    # Hacer URL absoluta si es relativa
+                    if not link_url.startswith('http'):
+                        if 'sala-rem' in venue_slug.lower():
+                            link_url = f"https://web.fourvenues.com{link_url}"
+                        else:
+                            link_url = f"https://site.fourvenues.com{link_url}"
+                    
+                    events.append({
+                        'url': link_url,
+                        'venue_slug': venue_slug,
+                        'name': link_text.strip(),
+                        'code': code
+                    })
+        print(f"   🔍 Markdown: {len(events)} eventos encontrados")
 
     return events
 
