@@ -411,21 +411,39 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                     valid_codes = [c for c in set(potential_codes) if any(x.isalpha() for x in c) and any(x.isdigit() for x in c)]
                     print(f"   🔍 Códigos potenciales en HTML: {valid_codes[:10]}")
                     
-                    # Para cada evento, intentar construir URL con cada código potencial
-                    # y verificar si la URL existe en el HTML
+                    # Filtrar eventos válidos (excluir texto de cookies, avisos legales, etc.)
+                    valid_events = []
                     for evt in event_info:
-                        for code in valid_codes:
-                            # Construir slug basándose en el nombre y fecha
-                            # Formato: nombre--fecha-CODIGO
-                            date_parts = evt['date'].split('-')
-                            date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                            url_slug = f"{evt['slug']}--{date_str}-{code}"
-                            test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
-                            
-                            # Verificar si esta URL o el código aparece en el HTML cerca del nombre del evento
-                            event_name_clean = re.sub(r'[^\w\s]', '', evt['name']).lower()
-                            pattern = rf'.{{0,200}}{re.escape(event_name_clean[:20])}.{{0,200}}{code}.{{0,200}}|.{{0,200}}{code}.{{0,200}}{re.escape(event_name_clean[:20])}.{{0,200}}'
-                            if re.search(pattern, html, re.IGNORECASE):
+                        # Filtrar eventos que parezcan válidos (tienen más de 5 caracteres, no son enlaces, etc.)
+                        evt_name = evt['name'].strip()
+                        # Excluir: enlaces markdown, texto de cookies, avisos legales, fechas solas, etc.
+                        if (len(evt_name) > 5 and 
+                            not evt_name.startswith('[') and 
+                            not evt_name.lower() in ['december 2025', 'cookies', 'configurar', 'rechazar cookies', 'aceptar cookies', 
+                                                      'essencial', 'analytics', 'guardar configuración'] and
+                            not 'cookie' in evt_name.lower() and
+                            not 'política' in evt_name.lower() and
+                            not 'aviso' in evt_name.lower() and
+                            not 'usamos cookies' in evt_name.lower() and
+                            not 'este sitio utiliza' in evt_name.lower()):
+                            valid_events.append(evt)
+                    
+                    print(f"   🔍 Eventos válidos filtrados: {len(valid_events)}")
+                    for evt in valid_events:
+                        print(f"   🔍   - {evt['name']} ({evt['date']})")
+                    
+                    # Emparejar eventos con códigos
+                    # Estrategia: usar los códigos en orden y asignarlos a los eventos en orden
+                    # O mejor: construir todas las combinaciones posibles y dejar que el scraper de detalles verifique
+                    if valid_events and valid_codes:
+                        # Si tenemos el mismo número de eventos y códigos, emparejarlos directamente
+                        if len(valid_events) == len(valid_codes):
+                            for i, evt in enumerate(valid_events):
+                                code = valid_codes[i]
+                                date_parts = evt['date'].split('-')
+                                date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
+                                url_slug = f"{evt['slug']}--{date_str}-{code}"
+                                test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
                                 events.append({
                                     'url': test_url,
                                     'venue_slug': venue_slug,
@@ -433,7 +451,24 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                                     'code': code
                                 })
                                 print(f"   🔍 Evento construido: {evt['name']} - {code} - {test_url[:80]}...")
-                                break  # Usar solo el primer código que coincida
+                        else:
+                            # Si no coinciden, construir todas las combinaciones posibles
+                            # El scraper de detalles verificará cuáles son válidas
+                            print(f"   🔍 Construyendo todas las combinaciones posibles ({len(valid_events)} eventos x {len(valid_codes)} códigos)...")
+                            for evt in valid_events:
+                                for code in valid_codes:
+                                    date_parts = evt['date'].split('-')
+                                    date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
+                                    url_slug = f"{evt['slug']}--{date_str}-{code}"
+                                    test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
+                                    events.append({
+                                        'url': test_url,
+                                        'venue_slug': venue_slug,
+                                        'name': evt['name'],
+                                        'code': code
+                                    })
+                                    print(f"   🔍 Evento construido: {evt['name']} - {code} - {test_url[:80]}...")
+                                break  # Solo usar el primer código por evento si hay múltiples códigos
                     
             else:
                 # Para otras discotecas: buscar /events/CODIGO
