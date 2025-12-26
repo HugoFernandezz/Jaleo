@@ -231,7 +231,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {/* Dynamic Title Hierarchy */}
         <View style={styles.titleContainer}>
           <Text style={[styles.brandTitle, { color: colors.text }]}>
-            Eventos<Text style={[styles.brandSubtitle, { color: colors.primary }]}>.</Text>
+            Jaleo
           </Text>
           <View style={styles.locationRow}>
             <Ionicons name="location" size={12} color={colors.textSecondary} />
