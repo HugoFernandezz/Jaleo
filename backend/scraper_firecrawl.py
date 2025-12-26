@@ -76,10 +76,11 @@ VENUE_URLS = [
 ]
 
 
-def extract_events_from_html(html: str, venue_url: str, markdown: str = None) -> List[Dict]:
+def extract_events_from_html(html: str, venue_url: str, markdown: str = None, raw_html: str = None) -> List[Dict]:
     """
     Extrae eventos del HTML de FourVenues de forma robusta.
     Si se proporciona markdown, también se usa para extraer información.
+    raw_html puede contener más información después de que el JavaScript se ejecuta.
     """
     events = []
     soup = BeautifulSoup(html, 'html.parser')
