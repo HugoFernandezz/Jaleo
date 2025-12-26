@@ -1449,30 +1449,48 @@ def transform_to_app_format(events: List[Dict]) -> List[Dict]:
     transformed = []
     
     for event in events:
-        # Parsear fecha
+        # Parsear fecha - priorizar _date_parts si está disponible (más confiable)
         fecha = datetime.now().strftime('%Y-%m-%d')
-        date_text = event.get('date_text', '')
         
-        # Intentar parsear la fecha
-        months = {
-            'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04',
-            'may': '05', 'jun': '06', 'jul': '07', 'ago': '08',
-            'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
-            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
-            'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
-            'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
-        }
-        
-        match = re.search(r'(\d{1,2})\s+(\w+)', date_text, re.IGNORECASE)
-        if match:
-            day = match.group(1).zfill(2)
-            month_str = match.group(2).lower()[:3]
-            month = months.get(month_str, '12')
-            year = datetime.now().year
-            # Si el mes ya pasó, es del año siguiente
-            if int(month) < datetime.now().month:
-                year += 1
+        # Si tenemos las partes de la fecha directamente (de la URL o markdown), usarlas
+        if event.get('_date_parts'):
+            date_parts = event['_date_parts']
+            day = date_parts['day'].zfill(2)
+            month = date_parts['month']
+            year = date_parts['year']
             fecha = f"{year}-{month}-{day}"
+        else:
+            # Intentar parsear desde date_text
+            date_text = event.get('date_text', '')
+            months = {
+                'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04',
+                'may': '05', 'jun': '06', 'jul': '07', 'ago': '08',
+                'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
+                'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+                'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+                'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+            }
+            
+            match = re.search(r'(\d{1,2})\s+(\w+)', date_text, re.IGNORECASE)
+            if match:
+                day = match.group(1).zfill(2)
+                month_str = match.group(2).lower()[:3]
+                month = months.get(month_str, '12')
+                year = datetime.now().year
+                # Si el mes ya pasó, es del año siguiente
+                if int(month) < datetime.now().month:
+                    year += 1
+                fecha = f"{year}-{month}-{day}"
+            
+            # Si aún no tenemos fecha, intentar extraer de la URL
+            if fecha == datetime.now().strftime('%Y-%m-%d') and event.get('url'):
+                url = event.get('url', '')
+                date_match = re.search(r'--(\d{1,2})-(\d{2})-(\d{4})-', url)
+                if date_match:
+                    day = date_match.group(1).zfill(2)
+                    month = date_match.group(2)
+                    year = date_match.group(3)
+                    fecha = f"{year}-{month}-{day}"
         
         # Construir entradas desde tickets extraídos
         entradas = []
