@@ -791,11 +791,23 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     
                     ticket_name = line[2:].strip()  # Quitar "- "
                     
-                    # Intentar extraer precio inline (ej: "PRIMERAS ENTRADAS 8€")
+                    # Intentar extraer precio inline (ej: "PRIMERAS ENTRADAS 8€" o "ENTRADA 10€")
                     inline_price = "0"
                     price_inline_match = re.search(r'(\d+(?:[,.]\d+)?)\s*€', ticket_name)
                     if price_inline_match:
                         inline_price = price_inline_match.group(1).replace(',', '.')
+                    
+                    # Detectar descripción común como "1 CONSUMICION" que suele tener precio asociado
+                    # Buscar en las líneas siguientes si hay un precio
+                    if inline_price == "0" and ('consumicion' in ticket_name.lower() or 'consumición' in ticket_name.lower()):
+                        # Buscar precio en las siguientes 5 líneas
+                        for j in range(i + 1, min(i + 6, len(lines))):
+                            next_line = lines[j].strip()
+                            price_match = re.search(r'(\d+(?:[,.]\d+)?)\s*€', next_line)
+                            if price_match:
+                                inline_price = price_match.group(1).replace(',', '.')
+                                print(f"      💰 Precio encontrado para '{ticket_name}' en línea siguiente: {inline_price}€")
+                                break
                     
                     current_ticket = {
                         "tipo": ticket_name,
