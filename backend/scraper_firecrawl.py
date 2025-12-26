@@ -456,13 +456,23 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                                 url_slug = f"{evt['slug']}--{date_str}-{code}"
                                 test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
                                 
+                                # Guardar la fecha en el evento para usarla después
+                                # Formato: "26-12-2025" -> convertir a formato estándar para date_text
+                                day, month, year = date_parts[0], date_parts[1], date_parts[2]
+                                month_names = {'01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
+                                             '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
+                                             '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'}
+                                date_text = f"{day} {month_names.get(month, 'diciembre')}"
+                                
                                 events.append({
                                     'url': test_url,
                                     'venue_slug': venue_slug,
                                     'name': evt['name'],
-                                    'code': code
+                                    'code': code,
+                                    'date_text': date_text,  # Guardar fecha parseable
+                                    '_date_parts': {'day': day, 'month': month, 'year': year}  # Guardar partes para uso directo
                                 })
-                                print(f"   🔍 URL construida: {evt['name']} - {code} - {test_url[:100]}...")
+                                print(f"   🔍 URL construida: {evt['name']} - {code} - fecha: {date_text} - {test_url[:100]}...")
                         
                         print(f"   🔍 Total URLs construidas: {len(events)} (el scraper de detalles validará cuáles son válidas)")
                     
