@@ -1603,21 +1603,59 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
     
     # Obtener detalles de eventos si se solicita
     if get_details and all_events:
-        # Deduplicar eventos antes de scrapear detalles (por URL o código)
-        # Esto es especialmente importante para Sala Rem donde construimos múltiples combinaciones
+        # Deduplicar eventos antes de scrapear detalles
+        # Para Sala Rem: deduplicar por nombre + fecha (ya que tenemos múltiples códigos para el mismo evento)
+        # Para otros: deduplicar por URL o código
         seen_urls = set()
         seen_codes = set()
+        seen_name_date = set()  # Para Sala Rem: (nombre_normalizado, fecha)
         unique_events = []
         
         for event in all_events:
             event_url = event.get('url', '')
             event_code = event.get('code', '')
+            event_name = event.get('name', '')
+            venue_slug = event.get('venue_slug', '')
+            is_sala_rem = 'sala-rem' in venue_slug.lower()
             
-            # Si ya vimos esta URL o este código, saltar
+            # Para Sala Rem: deduplicar por nombre + fecha
+            if is_sala_rem:
+                # Normalizar nombre (eliminar emojis, espacios extra, etc.)
+                name_normalized = re.sub(r'[^\w\s]', '', event_name.lower()).strip()
+                name_normalized = re.sub(r'\s+', ' ', name_normalized)
+                # Obtener fecha de _date_parts o date_text
+                event_date = None
+                if event.get('_date_parts'):
+                    date_parts = event['_date_parts']
+                    event_date = f"{date_parts['day']}-{date_parts['month']}-{date_parts['year']}"
+                elif event.get('date_text'):
+                    # Intentar extraer fecha de date_text
+                    date_match = re.search(r'(\d{1,2})\s+\w+', event.get('date_text', ''))
+                    if date_match:
+                        day = date_match.group(1)
+                        # Buscar mes en date_text
+                        month_map = {'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+                                   'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+                                   'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'}
+                        for month_name, month_num in month_map.items():
+                            if month_name in event.get('date_text', '').lower():
+                                event_date = f"{day}-{month_num}-2025"
+                                break
+                
+                if event_date:
+                    name_date_key = (name_normalized, event_date)
+                    if name_date_key in seen_name_date:
+                        print(f"   ⚠️ Evento duplicado (nombre+fecha): {event_name} - {event_date} - código: {event_code}")
+                        continue
+                    seen_name_date.add(name_date_key)
+            
+            # Si ya vimos esta URL, saltar
             if event_url in seen_urls:
                 print(f"   ⚠️ Evento duplicado (URL): {event.get('name', 'N/A')} - {event_url[:80]}...")
                 continue
-            if event_code and event_code in seen_codes:
+            
+            # Para otros venues: deduplicar por código
+            if not is_sala_rem and event_code and event_code in seen_codes:
                 print(f"   ⚠️ Evento duplicado (código): {event.get('name', 'N/A')} - código: {event_code}")
                 continue
             
