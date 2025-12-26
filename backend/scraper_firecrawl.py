@@ -140,20 +140,37 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                 if match:
                     event['code'] = match.group(1)
             
-            # Parsear aria-label
-            name_match = re.search(r'Evento\s*:\s*(.+?)(?:\.\s*Edad|\s*$)', aria_label)
-            if name_match: event['name'] = name_match.group(1).strip()
+            # Parsear aria-label (solo si existe)
+            if aria_label:
+                name_match = re.search(r'Evento\s*:\s*(.+?)(?:\.\s*Edad|\s*$)', aria_label)
+                if name_match: event['name'] = name_match.group(1).strip()
+                
+                age_match = re.search(r'Edad mínima:\s*(.+?)(?:\.\s*Fecha|\s*$)', aria_label)
+                if age_match:
+                    event['age_info'] = age_match.group(1).strip()
+                    num_match = re.search(r'(\d+)', age_match.group(1))
+                    if num_match: event['age_min'] = int(num_match.group(1))
+                
+                fecha_match = re.search(r'Fecha:\s*(.+?)(?:\.\s*Horario|\s*$)', aria_label)
+                if fecha_match: event['date_text'] = fecha_match.group(1).strip()
+                
+                horario_match = re.search(r'Horario:\s*de\s*(\d{1,2}:\d{2})\s*a\s*(\d{1,2}:\d{2})', aria_label)
+            else:
+                horario_match = None
             
-            age_match = re.search(r'Edad mínima:\s*(.+?)(?:\.\s*Fecha|\s*$)', aria_label)
-            if age_match:
-                event['age_info'] = age_match.group(1).strip()
-                num_match = re.search(r'(\d+)', age_match.group(1))
-                if num_match: event['age_min'] = int(num_match.group(1))
+            # Para Sala Rem, si no hay nombre, intentar obtenerlo del texto del enlace o elementos cercanos
+            if is_sala_rem and not event.get('name'):
+                link_text = link.get_text(strip=True)
+                if link_text and len(link_text) > 5:
+                    event['name'] = link_text[:100]  # Limitar longitud
+                else:
+                    # Buscar en elementos padre
+                    parent = link.find_parent()
+                    if parent:
+                        parent_text = parent.get_text(strip=True)
+                        if parent_text and len(parent_text) > 5:
+                            event['name'] = parent_text[:100]
             
-            fecha_match = re.search(r'Fecha:\s*(.+?)(?:\.\s*Horario|\s*$)', aria_label)
-            if fecha_match: event['date_text'] = fecha_match.group(1).strip()
-            
-            horario_match = re.search(r'Horario:\s*de\s*(\d{1,2}:\d{2})\s*a\s*(\d{1,2}:\d{2})', aria_label)
             if horario_match:
                 event['hora_inicio'] = horario_match.group(1)
                 event['hora_fin'] = horario_match.group(2)
