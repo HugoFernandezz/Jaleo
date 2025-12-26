@@ -1,0 +1,44 @@
+name: Scrape Sala Rem Only (Temporal)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Ejecutar cada hora mientras debuggeamos
+    - cron: '0 * * * *'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        pip install -r requirements.txt
+    
+    - name: Run scraper (Sala Rem only)
+      env:
+        FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      run: |
+        cd backend
+        python scraper_firecrawl.py --urls "https://web.fourvenues.com/es/sala-rem/events" --upload
+    
+    - name: Upload scraped data
+      uses: actions/upload-artifact@v4
+      with:
+        name: scraped-data-sala-rem
+        path: backend/data/*.json
+        retention-days: 7
+        if-no-files-found: warn
+        compression-level: 6
+        overwrite: false
+        include-hidden-files: false
+

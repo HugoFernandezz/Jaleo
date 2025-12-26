@@ -1803,6 +1803,7 @@ def main():
     parser.add_argument('--test', '-t', action='store_true', help='Solo test de conexión')
     parser.add_argument('--upload', '-u', action='store_true', help='Subir a Firebase')
     parser.add_argument('--no-details', action='store_true', help='No obtener detalles de eventos')
+    parser.add_argument('--urls', nargs='+', help='URLs específicas a scrapear (ej: --urls https://web.fourvenues.com/es/sala-rem/events)')
     
     args = parser.parse_args()
     
@@ -1813,8 +1814,9 @@ def main():
         success = test_connection()
         return 0 if success else 1
     
-    # Scraping completo
-    raw_events = scrape_all_events(get_details=not args.no_details)
+    # Scraping completo - usar URLs específicas si se proporcionan
+    target_urls = args.urls if args.urls else None
+    raw_events = scrape_all_events(urls=target_urls, get_details=not args.no_details)
     
     if not raw_events:
         print("\n❌ No se encontraron eventos")
