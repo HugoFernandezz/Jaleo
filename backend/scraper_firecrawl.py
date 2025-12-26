@@ -346,24 +346,34 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                     html_to_search = raw_html if raw_html and len(raw_html) > len(html) else html
                     if html_to_search:
                         print(f"   🔍 Buscando URLs completas de eventos en {'rawHtml' if raw_html and len(raw_html) > len(html) else 'HTML'}...")
-                        # Buscar todas las URLs que contengan sala-rem/events
-                        html_event_urls = re.findall(r'https?://[^"\s<>]+sala-rem/events/[^"\s<>]+', html_to_search, re.IGNORECASE)
+                        # Buscar todas las URLs que contengan sala-rem/events con múltiples patrones
+                        # Patrón 1: URLs completas con https://
+                        html_event_urls = re.findall(r'https?://[^"\s<>\)]+sala-rem/events/[^"\s<>\)]+', html_to_search, re.IGNORECASE)
+                        # Patrón 2: URLs relativas /es/sala-rem/events/
                         html_event_urls += re.findall(r'/es/sala-rem/events/[^"\s<>\)]+', html_to_search, re.IGNORECASE)
+                        # Patrón 3: URLs en atributos href, data-href, etc.
+                        html_event_urls += re.findall(r'(?:href|data-href|data-url|url)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
+                        # Patrón 4: URLs en JSON/JavaScript (más común en rawHtml después del JS)
+                        html_event_urls += re.findall(r'["\']([^"\']*sala-rem/events/[^"\']+)["\']', html_to_search, re.IGNORECASE)
                         
                         print(f"   🔍 URLs de eventos encontradas en HTML: {len(html_event_urls)}")
                         
                         # Si encontramos URLs completas, usarlas directamente (más confiable)
-                        # Pero limitar a las primeras N para evitar duplicados
-                        unique_urls = list(set(html_event_urls))[:10]  # Máximo 10 URLs únicas
-                        print(f"   🔍 Procesando {len(unique_urls)} URLs únicas de eventos...")
-                        
-                        for event_url in unique_urls:
+                        # Filtrar y normalizar URLs
+                        unique_urls = []
+                        seen_slugs = set()
+                        for event_url in html_event_urls:
                             # Hacer URL absoluta si es relativa
                             if not event_url.startswith('http'):
-                                event_url = f"https://web.fourvenues.com{event_url}"
+                                event_url = f"https://web.fourvenues.com{event_url}" if event_url.startswith('/') else f"https://web.fourvenues.com/{event_url}"
                             
-                            # Extraer código del final
+                            # Extraer slug único para deduplicar
                             url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0]
+                            if url_slug in seen_slugs:
+                                continue
+                            seen_slugs.add(url_slug)
+                            
+                            # Validar que el slug tiene el formato correcto (termina con código de 4 caracteres)
                             parts = url_slug.split('-')
                             if len(parts) > 0 and len(parts[-1]) == 4 and parts[-1].isalnum():
                                 code = parts[-1]
@@ -375,13 +385,18 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                                 else:
                                     name_from_slug = f"Evento {code}"
                                 
-                                events.append({
-                                    'url': event_url,
-                                    'venue_slug': venue_slug,
-                                    'name': name_from_slug,
-                                    'code': code
-                                })
-                                print(f"   🔍 Evento encontrado en HTML: {name_from_slug} - {code} - {event_url[:80]}...")
+                                unique_urls.append((event_url, code, name_from_slug))
+                        
+                        print(f"   🔍 Procesando {len(unique_urls)} URLs únicas de eventos...")
+                        
+                        for event_url, code, name_from_slug in unique_urls[:10]:  # Máximo 10 URLs
+                            events.append({
+                                'url': event_url,
+                                'venue_slug': venue_slug,
+                                'name': name_from_slug,
+                                'code': code
+                            })
+                            print(f"   🔍 Evento encontrado en HTML: {name_from_slug} - {code} - {event_url[:80]}...")
                 
                 # ESTRATEGIA FINAL: Si aún no hay eventos, construir URLs basándose en nombres y fechas del markdown
                 # y buscar códigos en el HTML de forma más amplia
@@ -432,11 +447,30 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                         print(f"   🔍   - {evt['name']} ({evt['date']})")
                     
                     # Buscar códigos de 4 caracteres en el HTML que puedan ser códigos de eventos
-                    # Los códigos suelen aparecer cerca de "sala-rem" o en atributos data-*
-                    potential_codes = re.findall(r'[^a-zA-Z0-9]([A-Z0-9]{4})[^a-zA-Z0-9]', html)
-                    # Filtrar códigos que parezcan válidos (tienen letras y números)
-                    valid_codes = [c for c in set(potential_codes) if any(x.isalpha() for x in c) and any(x.isdigit() for x in c)]
-                    print(f"   🔍 Códigos potenciales en HTML: {valid_codes[:10]}")
+                    # PRIORIDAD 1: Buscar códigos cerca de "sala-rem/events" (más confiable)
+                    event_code_patterns = [
+                        r'sala-rem/events/[^"\s<>\)]+-([A-Z0-9]{4})',  # En URLs de eventos
+                        r'/events/[^"\s<>\)]+-([A-Z0-9]{4})',  # En URLs de eventos (sin sala-rem)
+                        r'data-code["\']?\s*[:=]\s*["\']?([A-Z0-9]{4})',  # En atributos data-code
+                        r'code["\']?\s*[:=]\s*["\']?([A-Z0-9]{4})',  # En atributos code
+                    ]
+                    
+                    valid_codes = []
+                    for pattern in event_code_patterns:
+                        matches = re.findall(pattern, html, re.IGNORECASE)
+                        for code in matches:
+                            # Validar que el código tiene letras Y números (más probable que sea un código de evento)
+                            if any(x.isalpha() for x in code) and any(x.isdigit() for x in code):
+                                if code.upper() not in valid_codes:
+                                    valid_codes.append(code.upper())
+                    
+                    # PRIORIDAD 2: Si no encontramos códigos cerca de eventos, buscar en todo el HTML
+                    if not valid_codes:
+                        potential_codes = re.findall(r'[^a-zA-Z0-9]([A-Z0-9]{4})[^a-zA-Z0-9]', html)
+                        # Filtrar códigos que parezcan válidos (tienen letras y números)
+                        valid_codes = [c for c in set(potential_codes) if any(x.isalpha() for x in c) and any(x.isdigit() for x in c)]
+                    
+                    print(f"   🔍 Códigos potenciales encontrados: {len(valid_codes)} (mostrando primeros 10: {valid_codes[:10]})")
                     
                     # Filtrar eventos válidos (excluir texto de cookies, avisos legales, etc.)
                     valid_events = []
