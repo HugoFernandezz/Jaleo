@@ -1541,7 +1541,10 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
                 })
                 # #endregion
     
-    print(f"\n🎉 Total: {len(all_events)} eventos scrapeados")
+    # Filtrar eventos inválidos (None o marcados como inválidos)
+    all_events = [e for e in all_events if e is not None and not e.get('_invalid')]
+    
+    print(f"\n🎉 Total: {len(all_events)} eventos scrapeados (eventos inválidos filtrados)")
     return all_events
 
 
