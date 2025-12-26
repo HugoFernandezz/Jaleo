@@ -365,8 +365,15 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
             ticket_descriptions = []
             ticket_start_line = -1  # Línea donde empezó el ticket actual
             last_ticket_end_line = -1  # Línea donde terminó el último ticket guardado
-            MAX_DISTANCE = 30  # Máxima distancia en líneas para asignar precio/descripción (aumentado de 5 a 30)
+            MAX_DISTANCE = 50  # Máxima distancia en líneas para asignar precio/descripción (fallback)
             MIN_DISTANCE_FROM_PREVIOUS = 2  # Distancia mínima desde el último ticket guardado
+            
+            # Pre-coleccionar todas las líneas de tickets para saber dónde terminan
+            ticket_lines = []
+            for j, l in enumerate(lines):
+                if l.startswith('- ') and any(keyword in l.upper() for keyword in 
+                    ['ENTRADA', 'ENTRADAS', 'PROMOCIÓN', 'PROMOCION', 'VIP', 'RESERVADO', 'LISTA']):
+                    ticket_lines.append(j)
             
             # #region agent log
             debug_log(session_id, run_id, "A", "scraper_firecrawl.py:312", "Iniciando parsing markdown", {
@@ -429,50 +436,68 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     })
                     # #endregion
                 
-                # Detectar precio (formato: "X €") - Solo si no tiene precio inline Y está cerca del ticket
+                # Detectar precio (formato: "X €") - Solo si no tiene precio inline
                 elif current_ticket and re.search(r'^\d+\s*€$', line):
-                    # Validar proximidad: solo asignar si está cerca del ticket actual
-                    distance_from_current = i - ticket_start_line
-                    # Y no está demasiado cerca del último ticket guardado (evitar asignar al ticket anterior)
-                    distance_from_previous = i - last_ticket_end_line if last_ticket_end_line >= 0 else float('inf')
-                    
-                    if distance_from_current <= MAX_DISTANCE and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
-                        # Solo actualizar si no tiene precio inline válido
-                        if current_ticket['precio'] == "0":
+                    # Solo procesar si no tiene precio inline válido
+                    if current_ticket['precio'] == "0":
+                        distance_from_current = i - ticket_start_line
+                        distance_from_previous = i - last_ticket_end_line if last_ticket_end_line >= 0 else float('inf')
+                        
+                        # Encontrar el siguiente ticket (si existe)
+                        next_ticket_line = None
+                        for tl in ticket_lines:
+                            if tl > ticket_start_line:
+                                next_ticket_line = tl
+                                break
+                        
+                        # Calcular distancia máxima: hasta el siguiente ticket o MAX_DISTANCE, lo que sea menor
+                        max_allowed_distance = MAX_DISTANCE
+                        if next_ticket_line is not None:
+                            max_allowed_distance = min(next_ticket_line - ticket_start_line, MAX_DISTANCE)
+                        
+                        # Validar proximidad: debe estar dentro del rango permitido
+                        # Y no estar demasiado cerca del último ticket guardado
+                        if distance_from_current <= max_allowed_distance and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
                             price_match = re.search(r'(\d+)\s*€', line)
                             if price_match:
-                                old_price = current_ticket['precio']
-                                current_ticket['precio'] = price_match.group(1)
-                                # #region agent log
-                                debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio asignado desde línea", {
-                                    "line_number": i,
-                                    "line_content": line,
-                                    "ticket_tipo": current_ticket['tipo'],
-                                    "precio_anterior": old_price,
-                                    "precio_nuevo": current_ticket['precio'],
-                                    "distance_from_current": distance_from_current,
-                                    "distance_from_previous": distance_from_previous
-                                })
-                                # #endregion
+                                # Si ya hay un precio candidato, solo actualizar si este está más cerca
+                                if '_candidate_price_line' not in current_ticket or i < current_ticket['_candidate_price_line']:
+                                    old_price = current_ticket['precio']
+                                    current_ticket['precio'] = price_match.group(1)
+                                    current_ticket['_candidate_price_line'] = i  # Marcar línea del precio asignado
+                                    # #region agent log
+                                    debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio asignado desde línea", {
+                                        "line_number": i,
+                                        "line_content": line,
+                                        "ticket_tipo": current_ticket['tipo'],
+                                        "precio_anterior": old_price,
+                                        "precio_nuevo": current_ticket['precio'],
+                                        "distance_from_current": distance_from_current,
+                                        "distance_from_previous": distance_from_previous,
+                                        "next_ticket_line": next_ticket_line,
+                                        "max_allowed_distance": max_allowed_distance
+                                    })
+                                    # #endregion
                         else:
                             # #region agent log
-                            debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio IGNORADO (ya tiene precio inline)", {
+                            debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio IGNORADO (validación de proximidad falló)", {
                                 "line_number": i,
                                 "line_content": line,
                                 "ticket_tipo": current_ticket['tipo'],
-                                "precio_actual": current_ticket['precio']
+                                "distance_from_current": distance_from_current,
+                                "distance_from_previous": distance_from_previous,
+                                "next_ticket_line": next_ticket_line,
+                                "max_allowed_distance": max_allowed_distance,
+                                "max_distance": MAX_DISTANCE
                             })
                             # #endregion
                     else:
                         # #region agent log
-                        debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio IGNORADO (validación de proximidad falló)", {
+                        debug_log(session_id, run_id, "B", f"scraper_firecrawl.py:345", "Precio IGNORADO (ya tiene precio inline)", {
                             "line_number": i,
                             "line_content": line,
                             "ticket_tipo": current_ticket['tipo'],
-                            "distance_from_current": distance_from_current,
-                            "distance_from_previous": distance_from_previous,
-                            "max_distance": MAX_DISTANCE,
-                            "min_distance_from_previous": MIN_DISTANCE_FROM_PREVIOUS
+                            "precio_actual": current_ticket['precio']
                         })
                         # #endregion
                 
@@ -481,7 +506,19 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     distance_from_current = i - ticket_start_line
                     distance_from_previous = i - last_ticket_end_line if last_ticket_end_line >= 0 else float('inf')
                     
-                    if distance_from_current <= MAX_DISTANCE and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
+                    # Encontrar el siguiente ticket (si existe)
+                    next_ticket_line = None
+                    for tl in ticket_lines:
+                        if tl > ticket_start_line:
+                            next_ticket_line = tl
+                            break
+                    
+                    # Calcular distancia máxima: hasta el siguiente ticket o MAX_DISTANCE
+                    max_allowed_distance = MAX_DISTANCE
+                    if next_ticket_line is not None:
+                        max_allowed_distance = min(next_ticket_line - ticket_start_line, MAX_DISTANCE)
+                    
+                    if distance_from_current <= max_allowed_distance and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
                         current_ticket['agotadas'] = True
                         # #region agent log
                         debug_log(session_id, run_id, "C", f"scraper_firecrawl.py:353", "Estado agotado asignado", {
@@ -489,7 +526,9 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                             "line_content": line,
                             "ticket_tipo": current_ticket['tipo'],
                             "distance_from_current": distance_from_current,
-                            "distance_from_previous": distance_from_previous
+                            "distance_from_previous": distance_from_previous,
+                            "next_ticket_line": next_ticket_line,
+                            "max_allowed_distance": max_allowed_distance
                         })
                         # #endregion
                 
@@ -498,7 +537,19 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     distance_from_current = i - ticket_start_line
                     distance_from_previous = i - last_ticket_end_line if last_ticket_end_line >= 0 else float('inf')
                     
-                    if distance_from_current <= MAX_DISTANCE and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
+                    # Encontrar el siguiente ticket (si existe)
+                    next_ticket_line = None
+                    for tl in ticket_lines:
+                        if tl > ticket_start_line:
+                            next_ticket_line = tl
+                            break
+                    
+                    # Calcular distancia máxima: hasta el siguiente ticket o MAX_DISTANCE
+                    max_allowed_distance = MAX_DISTANCE
+                    if next_ticket_line is not None:
+                        max_allowed_distance = min(next_ticket_line - ticket_start_line, MAX_DISTANCE)
+                    
+                    if distance_from_current <= max_allowed_distance and distance_from_previous >= MIN_DISTANCE_FROM_PREVIOUS:
                         # Solo asignar si no tiene descripción o si la nueva es más específica
                         if not current_ticket['descripcion'] or len(line) > len(current_ticket['descripcion']):
                             old_desc = current_ticket['descripcion']
@@ -512,12 +563,17 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                                 "descripcion_anterior": old_desc,
                                 "descripcion_nueva": current_ticket['descripcion'],
                                 "distance_from_current": distance_from_current,
-                                "distance_from_previous": distance_from_previous
+                                "distance_from_previous": distance_from_previous,
+                                "next_ticket_line": next_ticket_line,
+                                "max_allowed_distance": max_allowed_distance
                             })
                             # #endregion
             
             # Añadir último ticket
             if current_ticket:
+                # Limpiar atributos temporales antes de guardar
+                if '_candidate_price_line' in current_ticket:
+                    del current_ticket['_candidate_price_line']
                 tickets.append(current_ticket)
             
             # #region agent log
@@ -651,17 +707,25 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                         idx, st = best_match
                         used_schema_tickets.add(idx)  # Marcar como usado
                         old_url = t['url_compra']
+                        old_price = t['precio']
                         t['url_compra'] = st['url_compra']
+                        
+                        # ACTUALIZAR PRECIO desde schema si el ticket no tiene precio o tiene "0"
+                        # El schema es más confiable que el markdown para precios
+                        if t['precio'] == "0" and st['precio'] and st['precio'] != "0":
+                            t['precio'] = st['precio']
                         
                         # #region agent log
                         debug_log(session_id, run_id, "B", "scraper_firecrawl.py:421", "MATCH encontrado", {
                             "ticket_tipo": t['tipo'],
-                            "ticket_precio": t['precio'],
+                            "ticket_precio_antes": old_price,
+                            "ticket_precio_despues": t['precio'],
                             "schema_tipo": st['tipo'],
                             "schema_precio": st['precio'],
                             "match_type": match_type,
                             "url_anterior": old_url,
-                            "url_nueva": t['url_compra']
+                            "url_nueva": t['url_compra'],
+                            "precio_actualizado": old_price != t['precio']
                         })
                         # #endregion
                     else:
