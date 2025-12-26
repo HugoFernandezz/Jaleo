@@ -122,3 +122,4 @@ Antes de publicar, verifica:
 - [EAS Build](https://docs.expo.dev/build/introduction/)
 - [Apple Push Notifications](https://developer.apple.com/documentation/usernotifications)
 
+

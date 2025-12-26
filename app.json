@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "partyfinder",
-    "slug": "partyfinder",
+    "slug": "partyfinder-murcia",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/IconPartyFinder.png",
     "userInterfaceStyle": "automatic",
     "extra": {
       "eas": {
-        "projectId": "partyfinder-murcia"
+        "projectId": "0a49467e-1eae-4cb0-8aa7-8902253891c3"
       }
     },
     "splash": {
@@ -20,7 +20,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.partyfinder.app",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -47,6 +50,7 @@
           "sounds": []
         }
       ]
-    ]
+    ],
+    "owner": "hugofernandezz3"
   }
 }

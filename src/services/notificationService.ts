@@ -55,7 +55,7 @@ export const notificationService = {
         // Get FCM token (Expo Push Token)
         try {
             const tokenData = await Notifications.getExpoPushTokenAsync({
-                projectId: 'partyfinder-murcia', // Debe coincidir con tu app.json extra.eas.projectId
+                projectId: '0a49467e-1eae-4cb0-8aa7-8902253891c3', // Debe coincidir con tu app.json extra.eas.projectId
             });
             const token = tokenData.data;
             
