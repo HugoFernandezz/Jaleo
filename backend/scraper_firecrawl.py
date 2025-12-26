@@ -71,7 +71,8 @@ DATA_DIR = Path(__file__).parent / "data"
 VENUE_URLS = [
     "https://site.fourvenues.com/es/luminata-disco/events",
     "https://site.fourvenues.com/es/el-club-by-odiseo/events",
-    "https://site.fourvenues.com/es/dodo-club/events"
+    "https://site.fourvenues.com/es/dodo-club/events",
+    "https://web.fourvenues.com/es/sala-rem/events"
 ]
 
 
