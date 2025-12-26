@@ -1887,16 +1887,43 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
                 has_valid_tickets = any(t.get('precio', '0') != '0' for t in tickets) if tickets else False
                 has_valid_prices = any(str(p) != '0' and str(p) != '0.0' for p in prices) if prices else False
                 
+                # #region agent log
+                debug_log(session_id, run_id, "G", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Validando contenido del evento", {
+                    "event_name": result.get('name', 'N/A'),
+                    "tickets_count": len(tickets),
+                    "tickets": [t.copy() if isinstance(t, dict) else str(t) for t in tickets],
+                    "prices": prices,
+                    "has_valid_tickets": has_valid_tickets,
+                    "has_valid_prices": has_valid_prices,
+                    "has_description": bool(result.get('description', '').strip()),
+                    "has_image": bool(result.get('image', '').strip()),
+                    "description": result.get('description', '')[:100],
+                    "image": result.get('image', '')[:100]
+                })
+                # #endregion
+                
                 # Si no tiene tickets válidos ni precios válidos, y es de Sala Rem, puede ser una URL inválida
                 if not has_valid_tickets and not has_valid_prices and 'sala-rem' in result.get('venue_slug', '').lower():
                     # Verificar si tiene descripción o imagen (signos de que la URL es válida)
                     has_description = bool(result.get('description', '').strip())
                     has_image = bool(result.get('image', '').strip())
                     
-                    if not has_description and not has_image:
+                    # RELAJAR VALIDACIÓN: Si tiene al menos tickets (aunque sean precio 0), mantenerlo
+                    # Esto es importante para eventos que pueden tener tickets gratuitos o con "consumicion"
+                    has_any_tickets = len(tickets) > 0
+                    
+                    if not has_description and not has_image and not has_any_tickets:
                         print(f"   ⚠️ Evento sin contenido válido descartado: {result.get('name', 'N/A')} - {result.get('url', 'N/A')[:80]}...")
+                        # #region agent log
+                        debug_log(session_id, run_id, "H", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento descartado por falta de contenido", {
+                            "event_name": result.get('name', 'N/A'),
+                            "reason": "no_description_no_image_no_tickets"
+                        })
+                        # #endregion
                         all_events[i] = None  # Marcar para filtrar después
                     else:
+                        # Mantener el evento aunque no tenga precios válidos si tiene tickets o descripción/imagen
+                        print(f"   ✅ Evento mantenido (tiene tickets/descripción/imagen): {result.get('name', 'N/A')}")
                         all_events[i] = result
                 else:
                     all_events[i] = result
