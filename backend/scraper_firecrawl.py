@@ -1690,7 +1690,26 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
                 print(f"   ⚠️ Evento inválido descartado: {result.get('name', 'N/A')} - {result.get('url', 'N/A')}")
                 all_events[i] = None  # Marcar para filtrar después
             else:
-                all_events[i] = result
+                # Verificar que el evento tiene contenido válido (tickets o precios)
+                # Si no tiene tickets y todos los precios son 0, probablemente es inválido
+                tickets = result.get('tickets', [])
+                prices = result.get('prices', [])
+                has_valid_tickets = any(t.get('precio', '0') != '0' for t in tickets) if tickets else False
+                has_valid_prices = any(str(p) != '0' and str(p) != '0.0' for p in prices) if prices else False
+                
+                # Si no tiene tickets válidos ni precios válidos, y es de Sala Rem, puede ser una URL inválida
+                if not has_valid_tickets and not has_valid_prices and 'sala-rem' in result.get('venue_slug', '').lower():
+                    # Verificar si tiene descripción o imagen (signos de que la URL es válida)
+                    has_description = bool(result.get('description', '').strip())
+                    has_image = bool(result.get('image', '').strip())
+                    
+                    if not has_description and not has_image:
+                        print(f"   ⚠️ Evento sin contenido válido descartado: {result.get('name', 'N/A')} - {result.get('url', 'N/A')[:80]}...")
+                        all_events[i] = None  # Marcar para filtrar después
+                    else:
+                        all_events[i] = result
+                else:
+                    all_events[i] = result
                 # #region agent log
                 debug_log(session_id, run_id, "F", "scraper_firecrawl.py:880", "Evento procesado en scrape_all_events", {
                     "event_index": i,
