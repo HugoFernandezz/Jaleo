@@ -1265,10 +1265,6 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
             "event_url": event_url[:100]
         })
         # #endregion
-            "schema_tickets_count": len(schema_tickets),
-            "schema_tickets": [st.copy() for st in schema_tickets]
-        })
-        # #endregion
         
         # Función para normalizar nombres para matching flexible (definir antes de usar)
         def normalize_name(name: str) -> str:
