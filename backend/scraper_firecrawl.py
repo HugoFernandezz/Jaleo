@@ -268,11 +268,25 @@ def extract_tickets_from_schema(html: str) -> List[Dict]:
                         price = offer.get('price')
                         
                         if url and '/tickets/' in url:
+                            # Detectar estado "agotadas" desde múltiples fuentes en el schema
+                            availability = offer.get('availability', '')
+                            availability_str = str(availability).lower() if availability else ''
+                            
+                            # Múltiples formas de detectar "agotadas" en schema.org
+                            is_sold_out = (
+                                availability == 'http://schema.org/OutOfStock' or
+                                availability == 'https://schema.org/OutOfStock' or
+                                'outofstock' in availability_str or
+                                'soldout' in availability_str or
+                                offer.get('availabilityStatus') == 'SoldOut' or
+                                offer.get('inventoryLevel', {}).get('value', 0) == 0 if isinstance(offer.get('inventoryLevel'), dict) else False
+                            )
+                            
                             tickets_from_schema.append({
                                 "tipo": name,
                                 "precio": str(price),
                                 "url_compra": url,
-                                "agotadas": offer.get('availability') == 'http://schema.org/OutOfStock'
+                                "agotadas": is_sold_out
                             })
         except:
             continue
@@ -694,9 +708,21 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     ticket_normalized = normalize_name(t['tipo'])
                     if ticket_normalized in schema_tickets_dict:
                         st = schema_tickets_dict[ticket_normalized]
-                        # Combinar: nombre del markdown, precio del schema
+                        # Combinar: nombre del markdown, precio del schema, estado agotadas del markdown (más confiable)
                         enriched_ticket = copy.deepcopy(st)
                         enriched_ticket['tipo'] = t['tipo']  # Preferir nombre del markdown
+                        # Priorizar estado "agotadas" del markdown si está disponible (más confiable que schema)
+                        # El markdown detecta "Agotada" en el texto, el schema puede no tener esta info
+                        if t.get('agotadas') is True:
+                            enriched_ticket['agotadas'] = True
+                        # #region agent log
+                        debug_log(session_id, run_id, "B", "scraper_firecrawl.py:695", "Enriqueciendo ticket desde schema", {
+                            "ticket_markdown": t.copy(),
+                            "ticket_schema": st.copy(),
+                            "enriched_ticket": enriched_ticket.copy(),
+                            "agotadas_preservada": enriched_ticket.get('agotadas', False)
+                        })
+                        # #endregion
                         enriched_tickets.append(enriched_ticket)
                     else:
                         # Si no hay match, intentar encontrar el mejor match parcial
@@ -712,6 +738,9 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                         if best_partial:
                             enriched_ticket = copy.deepcopy(best_partial)
                             enriched_ticket['tipo'] = t['tipo']
+                            # Priorizar estado "agotadas" del markdown si está disponible
+                            if t.get('agotadas') is True:
+                                enriched_ticket['agotadas'] = True
                             enriched_tickets.append(enriched_ticket)
                         else:
                             # Si no hay match, usar ticket del markdown pero intentar encontrar precio
@@ -842,9 +871,18 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                         if st['precio'] and st['precio'] != "0" and st['precio'] != "None":
                             t['precio'] = str(st['precio']).strip()
                         
-                        # También actualizar estado "agotadas" desde schema si está disponible
+                        # Actualizar estado "agotadas" desde schema SOLO si el markdown no tiene información
+                        # El markdown es más confiable para detectar "agotadas" (detecta "Agotada" en el texto)
+                        # Solo usar schema si el markdown no tiene el estado definido o es False
                         if 'agotadas' in st:
-                            t['agotadas'] = st['agotadas']
+                            # Si el markdown ya detectó "agotadas" como True, mantenerlo (más confiable)
+                            if t.get('agotadas') is not True:
+                                # Si el schema dice que está agotada, actualizar
+                                if st['agotadas'] is True:
+                                    t['agotadas'] = True
+                                # Si el schema dice que NO está agotada pero el markdown no tenía info, usar schema
+                                elif t.get('agotadas') is None:
+                                    t['agotadas'] = st['agotadas']
                         
                         # #region agent log
                         debug_log(session_id, run_id, "B", "scraper_firecrawl.py:421", "MATCH encontrado", {
