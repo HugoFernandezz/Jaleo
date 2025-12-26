@@ -90,15 +90,25 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
     print(f"   🔍 Debug: {len(all_event_links)} enlaces con '/events/' encontrados")
     
     # ESTRATEGIA 1: Enlaces con aria-label (Luminata, Odiseo)
-    event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
-    print(f"   🔍 Debug Estrategia 1: {len(event_links)} enlaces con 4+ '/' encontrados")
+    # Para Sala Rem, también buscar sin aria-label ya que puede tener estructura diferente
+    is_sala_rem = 'sala-rem' in venue_slug.lower()
+    
+    if is_sala_rem:
+        # Para Sala Rem, buscar cualquier enlace con /events/ (más permisivo)
+        event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
+        print(f"   🔍 Debug Estrategia 1 (Sala Rem): {len(event_links)} enlaces con '/events/' encontrados")
+    else:
+        # Para otras discotecas, buscar con aria-label
+        event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
+        print(f"   🔍 Debug Estrategia 1: {len(event_links)} enlaces con 4+ '/' encontrados")
     
     for link in event_links:
         try:
             href = link.get('href', '')
             aria_label = link.get('aria-label', '')
             
-            if not aria_label or 'Evento' not in aria_label:
+            # Para Sala Rem, no requerir aria-label
+            if not is_sala_rem and (not aria_label or 'Evento' not in aria_label):
                 continue
             
             event = {
@@ -463,19 +473,20 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
         
         if is_sala_rem:
             # Sala Rem necesita más tiempo y formato markdown para mejor extracción
+            # Usar rawHtml también para obtener más información antes del procesamiento
             result = firecrawl.scrape(
                 url,
-                formats=["html", "markdown"],  # Markdown puede ayudar a extraer mejor el contenido
+                formats=["html", "markdown", "rawHtml"],  # rawHtml puede tener más información
                 actions=[
-                    {"type": "wait", "milliseconds": 15000},  # Más tiempo inicial
-                    {"type": "scroll", "direction": "down", "amount": 1000},
-                    {"type": "wait", "milliseconds": 5000},
-                    {"type": "scroll", "direction": "down", "amount": 1000},
-                    {"type": "wait", "milliseconds": 5000},
-                    {"type": "scroll", "direction": "down", "amount": 1000},
-                    {"type": "wait", "milliseconds": 5000}
+                    {"type": "wait", "milliseconds": 20000},  # Más tiempo inicial para que cargue JS
+                    {"type": "scroll", "direction": "down", "amount": 1500},
+                    {"type": "wait", "milliseconds": 8000},
+                    {"type": "scroll", "direction": "down", "amount": 1500},
+                    {"type": "wait", "milliseconds": 8000},
+                    {"type": "scroll", "direction": "down", "amount": 1500},
+                    {"type": "wait", "milliseconds": 8000}
                 ],
-                wait_for=15000  # Esperar más tiempo
+                wait_for=20000  # Esperar más tiempo para que cargue el contenido dinámico
             )
         else:
             # Para Dodo Club y otros que puedan tener Queue-Fair, subimos el tiempo
