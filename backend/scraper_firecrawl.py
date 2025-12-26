@@ -311,6 +311,33 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None) ->
                     else:
                         print(f"   🔍 URL slug no válido: {url_slug}")
                 print(f"   🔍 URLs directas encontradas (Sala Rem): {len(codes_found)} códigos únicos")
+                
+                # Si aún no hay eventos, buscar URLs completas directamente en el HTML
+                if not events and html:
+                    print(f"   🔍 Buscando URLs completas de eventos en HTML...")
+                    # Buscar todas las URLs que contengan sala-rem/events
+                    html_event_urls = re.findall(r'https?://[^"\s<>]+sala-rem/events/[^"\s<>]+', html, re.IGNORECASE)
+                    html_event_urls += re.findall(r'/es/sala-rem/events/[^"\s<>\)]+', html, re.IGNORECASE)
+                    
+                    print(f"   🔍 URLs de eventos encontradas en HTML: {len(html_event_urls)}")
+                    
+                    for event_url in set(html_event_urls):
+                        # Hacer URL absoluta si es relativa
+                        if not event_url.startswith('http'):
+                            event_url = f"https://web.fourvenues.com{event_url}"
+                        
+                        # Extraer código del final
+                        url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0]
+                        parts = url_slug.split('-')
+                        if len(parts) > 0 and len(parts[-1]) == 4 and parts[-1].isalnum():
+                            code = parts[-1]
+                            events.append({
+                                'url': event_url,
+                                'venue_slug': venue_slug,
+                                'name': f"Evento {code}",
+                                'code': code
+                            })
+                            print(f"   🔍 Evento encontrado en HTML: {code} - {event_url[:80]}...")
             else:
                 # Para otras discotecas: buscar /events/CODIGO
                 event_url_patterns = re.findall(r'/events/([A-Z0-9-]{4,})', markdown)
