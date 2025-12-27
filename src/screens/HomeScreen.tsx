@@ -25,6 +25,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
 import { useAlerts } from '../context/AlertsContext';
 import { notificationService } from '../services/notificationService';
+import { Alert } from 'react-native';
 
 // Configure Spanish locale for calendar
 LocaleConfig.locales['es'] = {
@@ -178,6 +179,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     navigation.navigate('EventDetail', { party });
   }, [navigation]);
 
+  // Función temporal para mostrar el token de push notifications
+  const showPushToken = useCallback(async () => {
+    const token = await notificationService.getStoredToken();
+    if (token) {
+      if (Platform.OS === 'web') {
+        // En web, copiar al portapapeles y mostrar alerta
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(token);
+          alert(`Token copiado al portapapeles:\n\n${token}\n\nÚsalo con:\npython backend/test_push_notification.py ${token}`);
+        } else {
+          alert(`Token:\n\n${token}\n\nÚsalo con:\npython backend/test_push_notification.py ${token}`);
+        }
+      } else {
+        // En móvil, mostrar alerta con el token
+        Alert.alert(
+          '🔑 Token de Push Notifications',
+          `Token:\n\n${token}\n\nCopia este token y úsalo con:\npython backend/test_push_notification.py ${token}`,
+          [{ text: 'OK' }]
+        );
+      }
+      console.log('🔑 Token:', token);
+    } else {
+      Alert.alert(
+        '⚠️ No hay token',
+        'No se ha obtenido el token aún. Asegúrate de que los permisos de notificaciones estén concedidos.',
+        [{ text: 'OK' }]
+      );
+    }
+  }, []);
+
   const formatSectionDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const options: Intl.DateTimeFormatOptions = {
@@ -259,6 +290,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           >
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
             {alerts.length > 0 && <View style={[styles.notificationDot, { backgroundColor: colors.primary }]} />}
+          </TouchableOpacity>
+
+          {/* Botón temporal para testear push notifications */}
+          <TouchableOpacity
+            style={[styles.headerButton, { backgroundColor: colors.surface, shadowColor: colors.text }]}
+            onPress={showPushToken}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="bug-outline" size={22} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>

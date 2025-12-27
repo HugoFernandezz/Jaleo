@@ -9,6 +9,9 @@ beautifulsoup4>=4.12.0
 flask>=3.0.0
 flask-cors>=4.0.0
 
+# Push Notifications
+requests>=2.31.0
+
 # Para instalar Chromium (ejecutar después de pip install):
 # playwright install chromium
 

@@ -38,7 +38,14 @@ const AppContent: React.FC = () => {
     const initializeNotifications = async () => {
       const token = await notificationService.requestPermissions();
       if (token) {
-        console.log('FCM Token:', token);
+        console.log('='.repeat(50));
+        console.log('🔑 TOKEN PARA TEST DE NOTIFICACIONES PUSH:');
+        console.log('='.repeat(50));
+        console.log(token);
+        console.log('='.repeat(50));
+        console.log('💡 Copia este token y úsalo con:');
+        console.log('   python backend/test_push_notification.py ' + token);
+        console.log('='.repeat(50));
         // Token is automatically saved in notificationService
       }
     };
