@@ -1,9 +1,8 @@
 /**
  * Configuración de Firebase para PartyFinder
  * 
- * Las credenciales se cargan desde variables de entorno (archivo .env)
- * IMPORTANTE: Crea un archivo .env en la raíz del proyecto con las variables EXPO_PUBLIC_FIREBASE_*
- * Puedes encontrar los valores en:
+ * IMPORTANTE: Reemplaza los valores de firebaseConfig con los de tu proyecto Firebase.
+ * Puedes encontrarlos en:
  * Firebase Console > Configuración del proyecto > Tus apps > SDK snippet
  */
 
@@ -21,24 +20,15 @@ import {
   DocumentData
 } from 'firebase/firestore';
 
-// Configuración de Firebase desde variables de entorno
+// Configuración de Firebase - REEMPLAZAR CON TUS VALORES
 const firebaseConfig = {
-    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+    apiKey: "AIzaSyACNEPsAldntktsfyR6uXNPzY3bwZcfjgU",
+    authDomain: "partyfinder-murcia.firebaseapp.com",
+    projectId: "partyfinder-murcia",
+    storageBucket: "partyfinder-murcia.firebasestorage.app",
+    messagingSenderId: "711278175802",
+    appId: "1:711278175802:web:f0e041c143d2816af5b703"
   };
-
-// Validar que todas las variables de entorno estén definidas
-if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId) {
-  throw new Error(
-    'Error: Variables de entorno de Firebase no configuradas. ' +
-    'Por favor, crea un archivo .env con las variables EXPO_PUBLIC_FIREBASE_* ' +
-    'o revisa .env.example para más información.'
-  );
-}
 
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scraper de eventos para Jaleo usando Firecrawl
+Scraper de eventos para PartyFinder usando Firecrawl
 =====================================================
 Utiliza Firecrawl para bypass Cloudflare y extrae eventos del HTML.
 
@@ -1638,7 +1638,7 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
 
 def transform_to_app_format(events: List[Dict]) -> List[Dict]:
     """
-    Transforma los eventos al formato de la app Jaleo.
+    Transforma los eventos al formato de la app PartyFinder.
     """
     transformed = []
     
@@ -1773,7 +1773,7 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
     all_events = []
     
     print("=" * 60)
-    print("Jaleo - Firecrawl Scraper")
+    print("PartyFinder - Firecrawl Scraper")
     print("=" * 60)
     
     firecrawl = Firecrawl(api_key=API_KEY)
@@ -1992,7 +1992,7 @@ def test_connection() -> bool:
     Test básico de conexión.
     """
     print("=" * 60)
-    print("Jaleo - Test de Firecrawl")
+    print("PartyFinder - Test de Firecrawl")
     print("=" * 60)
     
     firecrawl = Firecrawl(api_key=API_KEY)

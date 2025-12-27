@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirestore, collection, doc, setDoc, getDocs, query, where, deleteDoc } from 'firebase/firestore';
@@ -7,8 +8,8 @@ import { db } from './firebase';
 import { Party } from '../types';
 import { NotificationAlert } from '../types/notifications';
 
-const EVENTS_SNAPSHOT_KEY = '@jaleo_events_snapshot';
-const FCM_TOKEN_KEY = '@jaleo_fcm_token';
+const EVENTS_SNAPSHOT_KEY = '@partyfinder_events_snapshot';
+const FCM_TOKEN_KEY = '@partyfinder_fcm_token';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -54,8 +55,21 @@ export const notificationService = {
 
         // Get FCM token (Expo Push Token)
         try {
+            // Get projectId from app.json (expo.extra.eas.projectId)
+            const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+            
+            if (!projectId || projectId === 'REEMPLAZA_CON_TU_UUID_DE_EXPO') {
+                console.error('❌ Error: projectId de Expo no configurado correctamente.');
+                console.error('📋 Para obtener tu projectId:');
+                console.error('   1. Ve a https://expo.dev y crea un nuevo proyecto');
+                console.error('   2. O ejecuta: npx eas init');
+                console.error('   3. Copia el UUID del proyecto y reemplázalo en app.json');
+                console.error('   4. El projectId debe ser un UUID (ej: a1b2c3d4-e5f6-7890-abcd-ef1234567890)');
+                return null;
+            }
+
             const tokenData = await Notifications.getExpoPushTokenAsync({
-                projectId: '0a49467e-1eae-4cb0-8aa7-8902253891c3', // Debe coincidir con tu app.json extra.eas.projectId
+                projectId: projectId,
             });
             const token = tokenData.data;
             

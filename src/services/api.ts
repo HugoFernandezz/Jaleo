@@ -17,11 +17,6 @@ const VENUE_ALIASES: { [key: string]: string } = {
   "Dodo club": "Dodo Club",
   "OW CLUB": "OW Club",
   "Ow Club": "OW Club",
-  "Sala Rem": "Sala Rem",
-  "SALA REM": "Sala Rem",
-  "sala rem": "Sala Rem",
-  "El Club By Odiseo": "El Club By Odiseo",
-  "EL CLUB BY ODISEO": "El Club By Odiseo",
   // Añadir más alias aquí según se detecten
 };
 
@@ -90,48 +85,17 @@ const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } =>
     }
 
     // 2. Procesar los Tipos de Entrada
-    const ticketTypes: TicketType[] = (eventoData.entradas || []).map((t: any, i: number) => {
-      // #region agent log
-      const rawPrice = t.precio;
-      const priceType = typeof rawPrice;
-      const parsedPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice.replace(',', '.')) : (rawPrice || 0);
-      fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'D',
-          location: 'api.ts:88',
-          message: 'Procesando precio de ticket',
-          data: {
-            event_index: index,
-            event_name: eventoData.nombreEvento || eventoData.titulo,
-            ticket_index: i,
-            ticket_tipo: t.tipo || t.nombre,
-            raw_precio: rawPrice,
-            precio_type: priceType,
-            parsed_precio: parsedPrice,
-            is_nan: isNaN(parsedPrice),
-            ticket_full: t
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-      // #endregion
-      
-      return {
-        id: t.id || `t${index}-${i}`,
-        name: t.tipo || t.nombre || 'Entrada',
-        description: t.descripcion || '',
-        price: parsedPrice,
-        isAvailable: t.agotadas !== undefined ? !t.agotadas : (t.isAvailable !== false),
-        isSoldOut: t.agotadas || t.isSoldOut || false,
-        fewLeft: t.quedan_pocas || t.fewLeft || false,
-        restrictions: t.restricciones || '',
-        purchaseUrl: t.url_compra || t.link_compra || '',
-      };
-    });
+    const ticketTypes: TicketType[] = (eventoData.entradas || []).map((t: any, i: number) => ({
+      id: t.id || `t${index}-${i}`,
+      name: t.tipo || t.nombre || 'Entrada',
+      description: t.descripcion || '',
+      price: typeof t.precio === 'string' ? parseFloat(t.precio.replace(',', '.')) : (t.precio || 0),
+      isAvailable: t.agotadas !== undefined ? !t.agotadas : (t.isAvailable !== false),
+      isSoldOut: t.agotadas || t.isSoldOut || false,
+      fewLeft: t.quedan_pocas || t.fewLeft || false,
+      restrictions: t.restricciones || '',
+      purchaseUrl: t.url_compra || t.link_compra || '',
+    }));
 
     // 3. Procesar y añadir la Party
     const party: Party = {
@@ -336,60 +300,8 @@ class ApiService {
         throw new Error('No se pudieron obtener datos de Firebase ni del Backend Local');
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'D',
-          location: 'api.ts:303',
-          message: 'Datos recibidos de Firebase ANTES de transformar',
-          data: {
-            raw_data_count: rawData?.length || 0,
-            first_event_sample: rawData?.[0] ? {
-              evento: rawData[0].evento || rawData[0],
-              entradas_sample: (rawData[0].evento?.entradas || rawData[0].entradas || []).slice(0, 3).map((t: any) => ({
-                tipo: t.tipo,
-                precio: t.precio,
-                precio_type: typeof t.precio
-              }))
-            } : null
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-      // #endregion
-      
       // Transformar los datos crudos al formato que la app espera
       const transformedData = transformData(rawData);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4f265990-1ec1-45f9-8d10-28c483de2c27', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'D',
-          location: 'api.ts:304',
-          message: 'Datos DESPUÉS de transformar',
-          data: {
-            parties_count: transformedData.parties?.length || 0,
-            first_party_sample: transformedData.parties?.[0] ? {
-              title: transformedData.parties[0].title,
-              ticket_types_sample: transformedData.parties[0].ticketTypes?.slice(0, 3).map((t: TicketType) => ({
-                name: t.name,
-                price: t.price,
-                price_type: typeof t.price
-              }))
-            } : null
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-      // #endregion
 
       const result: ApiResponse<T> = {
         success: true,

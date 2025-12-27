@@ -10,11 +10,7 @@
     "preview": {
       "distribution": "internal"
     },
-    "production": {
-      "ios": {
-        "simulator": false
-      }
-    }
+    "production": {}
   },
   "submit": {
     "production": {}

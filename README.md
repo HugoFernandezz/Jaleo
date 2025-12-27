@@ -1,4 +1,4 @@
-# Jaleo Murcia 🎉
+# PartyFinder Murcia 🎉
 
 Una aplicación móvil para descubrir las mejores fiestas y eventos nocturnos en Murcia.
 
@@ -16,8 +16,7 @@ Una aplicación móvil para descubrir las mejores fiestas y eventos nocturnos en
 - **React Native** + **Expo** para desarrollo móvil multiplataforma
 - **TypeScript** para tipado estático
 - **React Navigation** para navegación entre pantallas
-- **Firebase Firestore** para almacenamiento de datos en tiempo real
-- **Expo Notifications** para notificaciones push
+- **JSONBin API** para almacenamiento de datos
 - **Expo Vector Icons** para iconografía
 
 ## 📱 Funcionalidades
@@ -91,44 +90,19 @@ src/
 - Node.js 18+ 
 - npm o yarn
 - Expo CLI
-- Cuenta de Firebase (para la base de datos)
 
 ### Instalación
 ```bash
 # Clonar el repositorio
 git clone <repository-url>
-cd Jaleo
+cd PartyFinder
 
 # Instalar dependencias
 npm install
 
-# Configurar variables de entorno
-cp .env.example .env
-# Edita .env y añade tus credenciales de Firebase
-# Puedes encontrarlas en: Firebase Console > Configuración del proyecto > Tus apps > SDK snippet
-
 # Iniciar en modo desarrollo
 npm start
 ```
-
-### ⚙️ Configuración de Variables de Entorno
-
-**IMPORTANTE**: Este proyecto usa variables de entorno para las credenciales de Firebase. 
-
-1. Copia el archivo `.env.example` a `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Edita `.env` y reemplaza los valores con los de tu proyecto Firebase:
-   - Ve a [Firebase Console](https://console.firebase.google.com)
-   - Selecciona tu proyecto
-   - Ve a **Configuración del proyecto** > **Tus apps** > **SDK snippet**
-   - Copia los valores y pégalos en `.env`
-
-3. **NUNCA subas el archivo `.env` a Git** - Ya está en `.gitignore`
-
-> ⚠️ **Nota de Seguridad**: Si este repositorio ya tenía credenciales expuestas en el historial de Git, considera rotar las API keys en Firebase Console para mayor seguridad.
 
 ### Scripts Disponibles
 ```bash

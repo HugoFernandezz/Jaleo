@@ -67,6 +67,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     const unsubscribe = apiService.subscribeToUpdates((data) => {
       if (data.parties.length > 0) {
         setParties(data.parties);
+        // Toast de actualización deshabilitado
       }
     });
 
@@ -231,7 +232,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {/* Dynamic Title Hierarchy */}
         <View style={styles.titleContainer}>
           <Text style={[styles.brandTitle, { color: colors.text }]}>
-            Jaleo
+            Jaleo!<Text style={[styles.brandSubtitle, { color: colors.primary }]}>.</Text>
           </Text>
           <View style={styles.locationRow}>
             <Ionicons name="location" size={12} color={colors.textSecondary} />

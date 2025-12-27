@@ -1,56 +1,36 @@
 {
   "expo": {
-    "name": "Jaleo",
-    "slug": "jaleo-murcia",
+    "name": "partyfinder",
+    "slug": "partyfinder",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/IconPartyFinder.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "extra": {
-      "eas": {
-        "projectId": "0a49467e-1eae-4cb0-8aa7-8902253891c3"
-      }
-    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.jaleo.app",
-      "infoPlist": {
-        "UIBackgroundModes": [
-          "remote-notification"
-        ],
-        "ITSAppUsesNonExemptEncryption": false
-      }
+      "supportsTablet": true
     },
     "android": {
-      "package": "com.jaleo.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/IconPartyFinder.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "permissions": [
-        "RECEIVE_BOOT_COMPLETED"
-      ]
+      }
     },
     "web": {
-      "favicon": "./assets/IconPartyFinder.png",
+      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [
-      "expo-font",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/IconPartyFinder.png",
-          "color": "#ffffff",
-          "sounds": []
-        }
-      ]
+      "expo-font"
     ],
-    "owner": "hugofernandezz3"
+    "extra": {
+      "eas": {
+        "projectId": "c8645f4e-9bb0-46ca-9c31-0c6f4d303396"
+      }
+    }
   }
 }

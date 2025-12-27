@@ -174,31 +174,10 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
     );
   };
 
-  // Animación para ocultar la imagen al hacer scroll
-  const imageTranslateY = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT],
-    outputRange: [0, -HEADER_HEIGHT],
-    extrapolate: 'clamp',
-  });
-
-  const imageOpacity = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
-    outputRange: [1, 0.5, 0],
-    extrapolate: 'clamp',
-  });
-
   return (
     <Container {...containerProps}>
-      {/* Header Image - Parallax con ocultación al scroll */}
-      <Animated.View 
-        style={[
-          styles.imageContainer,
-          {
-            transform: [{ translateY: imageTranslateY }],
-            opacity: imageOpacity,
-          }
-        ]}
-      >
+      {/* Header Image - Fixed */}
+      <View style={styles.imageContainer}>
         <Image
           source={
             imageError
@@ -209,7 +188,7 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
           onError={() => setImageError(true)}
           resizeMode="cover"
         />
-      </Animated.View>
+      </View>
 
       {/* Back button - fixed position */}
       <TouchableOpacity
@@ -224,10 +203,6 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
         showsVerticalScrollIndicator={false}
         bounces={true}
         scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
         contentContainerStyle={{ paddingTop: HEADER_HEIGHT - 32 }}
         style={Platform.OS === 'web' ? styles.scrollViewWeb : undefined}
       >
