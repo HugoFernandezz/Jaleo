@@ -1,4 +1,4 @@
-package com.partyfinder.app
+package com.jaleo.app
 
 import android.os.Build
 import android.os.Bundle
@@ -59,3 +59,5 @@ class MainActivity : ReactActivity() {
       super.invokeDefaultOnBackPressed()
   }
 }
+
+

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "partyfinder",
+    "name": "Jaleo!",
     "slug": "partyfinder",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,13 +12,27 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jaleo.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Necesitamos acceso a las notificaciones para avisarte cuando salgan nuevas entradas para tus eventos favoritos."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.jaleo.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
