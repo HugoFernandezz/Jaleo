@@ -211,6 +211,15 @@ def extract_from_html_links(soup: BeautifulSoup, venue_slug: str) -> List[Dict]:
     else:
         event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
     
+    # #region agent log
+    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_from_html_links", {
+        "venue_slug": venue_slug,
+        "is_sala_rem": is_sala_rem,
+        "event_links_count": len(event_links),
+        "sample_hrefs": [link.get('href', '')[:100] for link in event_links[:5]] if event_links else []
+    })
+    # #endregion
+    
     for link in event_links:
         try:
             href = link.get('href', '')
@@ -313,14 +322,29 @@ def extract_from_raw_html(html: str, venue_slug: str) -> List[Dict]:
     """
     events = []
     soup = BeautifulSoup(html, 'html.parser')
+    is_sala_rem = 'sala-rem' in venue_slug.lower()
     
     # Buscar enlaces <a> reales
     soup_links = soup.find_all('a', href=True)
     soup_event_urls = []
     for link in soup_links:
         href = link.get('href', '')
-        if href and 'sala-rem' in href.lower() and '/events/' in href:
-            soup_event_urls.append(href)
+        # Buscar enlaces que contengan el venue_slug o /events/
+        if href and '/events/' in href:
+            if is_sala_rem and 'sala-rem' in href.lower():
+                soup_event_urls.append(href)
+            elif venue_slug in href.lower():
+                soup_event_urls.append(href)
+    
+    # #region agent log
+    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_from_raw_html soup_links", {
+        "venue_slug": venue_slug,
+        "is_sala_rem": is_sala_rem,
+        "total_a_tags": len(soup_links),
+        "soup_event_urls_count": len(soup_event_urls),
+        "sample_soup_urls": soup_event_urls[:5] if soup_event_urls else []
+    })
+    # #endregion
     
     # Buscar URLs con regex
     html_event_urls = []
@@ -332,6 +356,14 @@ def extract_from_raw_html(html: str, venue_slug: str) -> List[Dict]:
     html_event_urls += re.findall(r'(?:data-|aria-)\w+["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html, re.IGNORECASE)
     html_event_urls += re.findall(r'(?:url|href|link|path)\s*[:=]\s*([^\s,;\)]+sala-rem/events/[^\s,;\)]+)', html, re.IGNORECASE)
     html_event_urls += re.findall(r'sala-rem/events/[a-zA-Z0-9\-_/]+', html, re.IGNORECASE)
+    
+    # #region agent log
+    debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_from_raw_html regex results", {
+        "html_event_urls_count": len(html_event_urls),
+        "sample_regex_urls": html_event_urls[:10] if html_event_urls else [],
+        "html_snippet_events": html[html.find('/events/'):html.find('/events/')+200] if '/events/' in html else "NO /events/ FOUND"
+    })
+    # #endregion
     
     html_event_urls = list(set(html_event_urls + soup_event_urls))
     
@@ -513,15 +545,36 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
     Extrae eventos del HTML de FourVenues de forma robusta.
     Usa múltiples estrategias de extracción en orden de prioridad.
     """
+    # #region agent log
+    # Buscar si hay referencias a eventos en el HTML
+    events_in_html = '/events/' in html if html else False
+    sala_rem_in_html = 'sala-rem' in html.lower() if html else False
+    jueves_in_html = 'jueves' in html.lower() if html else False
+    friday_in_html = 'friday' in html.lower() if html else False
+    
     debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html START", {
         "venue_url": venue_url,
         "html_length": len(html) if html else 0,
         "markdown_length": len(markdown) if markdown else 0,
-        "raw_html_length": len(raw_html) if raw_html else 0
+        "raw_html_length": len(raw_html) if raw_html else 0,
+        "events_in_html": events_in_html,
+        "sala_rem_in_html": sala_rem_in_html,
+        "jueves_in_html": jueves_in_html,
+        "friday_in_html": friday_in_html,
+        "html_sample": html[:500] if html else "NO HTML"
     })
+    # #endregion
     
     soup = BeautifulSoup(html, 'html.parser')
     venue_slug = venue_url.split('/')[-2] if '/events' in venue_url else ''
+    
+    # #region agent log
+    debug_log("debug-session", "run1", "D", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "venue_slug extraído", {
+        "venue_url": venue_url,
+        "venue_slug": venue_slug,
+        "contains_events": '/events' in venue_url
+    })
+    # #endregion
     
     all_events = []
     
