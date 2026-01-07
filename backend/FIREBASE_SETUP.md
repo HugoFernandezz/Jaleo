@@ -27,8 +27,14 @@ Sigue estos pasos para configurar Firebase para PartyFinder.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Los eventos son públicos (solo lectura)
+    // Los eventos de producción son públicos (solo lectura)
     match /eventos/{eventoId} {
+      allow read: if true;
+      allow write: if false; // Solo el scraper puede escribir
+    }
+    
+    // Los eventos de desarrollo también son públicos (solo lectura)
+    match /eventos-dev/{eventoId} {
       allow read: if true;
       allow write: if false; // Solo el scraper puede escribir
     }
