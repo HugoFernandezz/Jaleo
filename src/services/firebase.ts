@@ -34,8 +34,15 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Referencia a la colección de eventos
-const eventosCollection = collection(db, 'eventos');
+// Leer variable de entorno para determinar la colección
+const COLLECTION_NAME = process.env.EXPO_PUBLIC_FIREBASE_COLLECTION || 'eventos';
+const ENV_MODE = process.env.EXPO_PUBLIC_ENV || 'production';
+
+// Log para debugging
+console.log(`🔧 Modo: ${ENV_MODE} | Colección: ${COLLECTION_NAME}`);
+
+// Referencia a la colección de eventos (dinámica según entorno)
+const eventosCollection = collection(db, COLLECTION_NAME);
 
 /**
  * Obtiene todos los eventos de Firestore
@@ -61,9 +68,10 @@ export async function getEventos(): Promise<DocumentData[]> {
       });
     });
     
+    console.log(`✅ Obtenidos ${eventos.length} eventos de colección: ${COLLECTION_NAME}`);
     return eventos;
   } catch (error) {
-    console.error('Error obteniendo eventos de Firebase:', error);
+    console.error(`❌ Error obteniendo eventos de Firebase (${COLLECTION_NAME}):`, error);
     return [];
   }
 }
@@ -93,7 +101,7 @@ export function subscribeToEventos(
       });
       callback(eventos);
     }, (error) => {
-      console.error('Error en suscripción de Firebase:', error);
+      console.error(`❌ Error en suscripción de Firebase (${COLLECTION_NAME}):`, error);
     });
     
     return unsubscribe;

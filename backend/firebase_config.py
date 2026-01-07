@@ -26,19 +26,22 @@ def get_db():
         print(f"❌ Error conectando a Firestore: {e}")
         return None
 
-def delete_old_events():
+def delete_old_events(collection_name='eventos'):
     """
-    BORRADO COMPLETO: Elimina TODOS los eventos existentes en la colección 'eventos'.
+    BORRADO COMPLETO: Elimina TODOS los eventos existentes en la colección especificada.
     Esto asegura que no queden duplicados antiguos cuando se suben nuevos datos.
+    
+    Args:
+        collection_name: Nombre de la colección a limpiar (default: 'eventos')
     """
     db = get_db()
     if not db: return
 
-    print("🗑️  Iniciando borrado de TODOS los eventos antiguos...")
+    print(f"🗑️  Iniciando borrado de TODOS los eventos antiguos de '{collection_name}'...")
     
     try:
         # Obtener todos los documentos de la colección
-        events_ref = db.collection('eventos')
+        events_ref = db.collection(collection_name)
         docs = events_ref.stream()
         
         count = 0
@@ -58,14 +61,18 @@ def delete_old_events():
         if count % 400 != 0:
             batch.commit()
             
-        print(f"✅ Limpieza completada: {count} eventos eliminados.")
+        print(f"✅ Limpieza completada: {count} eventos eliminados de '{collection_name}'.")
             
     except Exception as e:
-        print(f"❌ Error borrando eventos: {e}")
+        print(f"❌ Error borrando eventos de '{collection_name}': {e}")
 
-def upload_events_to_firestore(events_data):
+def upload_events_to_firestore(events_data, collection_name='eventos'):
     """
     Sube la lista de eventos a Firestore.
+    
+    Args:
+        events_data: Lista de eventos a subir
+        collection_name: Nombre de la colección donde subir (default: 'eventos')
     """
     db = get_db()
     if not db: return
@@ -74,9 +81,9 @@ def upload_events_to_firestore(events_data):
         print("⚠️ No hay eventos para subir.")
         return
 
-    print(f"📤 Subiendo {len(events_data)} eventos a Firestore...")
+    print(f"📤 Subiendo {len(events_data)} eventos a Firestore (colección: '{collection_name}')...")
     
-    events_ref = db.collection('eventos')
+    events_ref = db.collection(collection_name)
     batch = db.batch()
     count = 0
     
@@ -105,4 +112,4 @@ def upload_events_to_firestore(events_data):
     if count % 400 != 0:
         batch.commit()
         
-    print(f"✅ Carga completada con éxito: {count} eventos activos.")
+    print(f"✅ Carga completada con éxito: {count} eventos activos en '{collection_name}'.")

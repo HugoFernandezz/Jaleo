@@ -1,0 +1,54 @@
+name: Scrape Events (Development)
+
+on:
+  # Solo ejecución manual - NO se ejecuta automáticamente
+  workflow_dispatch:
+
+jobs:
+  scrape-dev:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+      
+      - name: Install Firecrawl SDK and Firebase Admin
+        run: pip install firecrawl-py firebase-admin
+      
+      - name: Create data directory
+        run: mkdir -p backend/data
+
+      - name: Create Firebase Credentials
+        env:
+          FIREBASE_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          cd backend
+          echo "$FIREBASE_KEY" > serviceAccountKey.json
+      
+      - name: Run Firecrawl scraper DEV with Firebase upload (eventos-dev)
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          cd backend
+          python scraper_firecrawl_dev.py --upload
+      
+      - name: Upload artifacts (backup)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scraped-data-dev-${{ github.run_number }}
+          path: backend/data/*.json
+          retention-days: 7
+

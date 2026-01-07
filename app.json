@@ -14,9 +14,17 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.jaleo.app",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "Necesitamos acceso a las notificaciones para avisarte cuando salgan nuevas entradas para tus eventos favoritos."
+        "NSUserNotificationsUsageDescription": "Necesitamos acceso a las notificaciones para avisarte cuando salgan nuevas entradas para tus eventos favoritos.",
+        "NSCalendarsUsageDescription": "Permite agregar eventos a tu calendario para que no se te olvide ninguna fiesta.",
+        "NSCalendarsWriteOnlyUsageDescription": "Permite agregar eventos a tu calendario para que no se te olvide ninguna fiesta.",
+        "NSLocationWhenInUseUsageDescription": "Para mostrarte los eventos más cercanos a tu ubicación.",
+        "LSApplicationQueriesSchemes": [
+          "maps",
+          "http",
+          "https"
+        ]
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -39,7 +47,13 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Permite agregar eventos a tu calendario para que no se te olvide ninguna fiesta."
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -112,9 +112,12 @@ const transformData = (apiData: any[]): { venues: Venue[], parties: Party[] } =>
       date: eventoData.fecha,
       startTime: eventoData.hora_inicio,
       endTime: eventoData.hora_fin,
-      price: ticketTypes.length > 0 && ticketTypes.some(t => t.price > 0)
-        ? Math.min(...ticketTypes.map(t => t.price).filter(p => p > 0))
-        : 0,
+      price: (() => {
+        // Filtrar solo entradas disponibles (no agotadas)
+        const availableTickets = ticketTypes.filter(t => t.isAvailable && !t.isSoldOut);
+        const availablePrices = availableTickets.map(t => t.price).filter(p => p > 0);
+        return availablePrices.length > 0 ? Math.min(...availablePrices) : 0;
+      })(),
       imageUrl: eventoData.imagen_url || eventoData.imageUrl || venue.imageUrl,
       ticketUrl: eventoData.url_evento || eventoData.url_entradas || '',
       isAvailable: ticketTypes.length > 0 ? ticketTypes.some(t => t.isAvailable) : true,

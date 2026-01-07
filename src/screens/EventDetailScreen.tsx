@@ -9,6 +9,8 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Modal,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +19,7 @@ import { RootStackParamList } from '../components/Navigation';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../context/ThemeContext';
+import { addEventToCalendar, shareEvent, openVenueInMaps } from '../services/nativeFeatures';
 
 const { width, height } = Dimensions.get('window');
 const HEADER_HEIGHT = 400; // Increased for parallax effect
@@ -33,6 +36,7 @@ interface EventDetailScreenProps {
 export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, navigation }) => {
   const { party } = route.params;
   const [imageError, setImageError] = useState(false);
+  const [showCalendarConfirm, setShowCalendarConfirm] = useState(false);
   const { colors, isDark } = useTheme();
   const scrollY = useRef(new Animated.Value(0)).current;
   
@@ -68,15 +72,25 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
     }
   };
 
-  // Abrir ubicación en mapas
+  // Abrir ubicación en mapas usando el servicio nativo
   const handleOpenMaps = () => {
-    if (party.latitude && party.longitude) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${party.latitude},${party.longitude}`;
-      Linking.openURL(url);
-    } else if (party.venueAddress) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(party.venueAddress)}`;
-      Linking.openURL(url);
-    }
+    openVenueInMaps(party);
+  };
+
+  // Mostrar confirmación antes de agregar al calendario
+  const handleAddToCalendar = () => {
+    setShowCalendarConfirm(true);
+  };
+
+  // Confirmar y agregar al calendario
+  const handleConfirmAddToCalendar = async () => {
+    setShowCalendarConfirm(false);
+    await addEventToCalendar(party);
+  };
+
+  // Compartir evento
+  const handleShareEvent = async () => {
+    await shareEvent(party);
   };
 
   // Renderizar cada entrada
@@ -226,6 +240,24 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
         <Ionicons name="chevron-back" size={24} color={colors.text} />
       </TouchableOpacity>
 
+      {/* Action buttons - fixed position */}
+      <View style={styles.actionButtons}>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: colors.surface }]}
+          onPress={handleAddToCalendar}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="calendar" size={22} color={colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: colors.surface }]}
+          onPress={handleShareEvent}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="share-outline" size={22} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+
       {/* Scrollable Content */}
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
@@ -356,6 +388,76 @@ export const EventDetailScreen: React.FC<EventDetailScreenProps> = ({ route, nav
           )}
         </View>
       </Animated.ScrollView>
+
+      {/* Calendar Confirmation Modal */}
+      <Modal
+        visible={showCalendarConfirm}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCalendarConfirm(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowCalendarConfirm(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.confirmModal, { backgroundColor: colors.surface }]}>
+                {/* Icon */}
+                <View style={[styles.confirmIconContainer, { backgroundColor: colors.background }]}>
+                  <Ionicons name="calendar" size={32} color={colors.primary} />
+                </View>
+
+                {/* Title */}
+                <Text style={[styles.confirmTitle, { color: colors.text }]}>
+                  Agregar al calendario
+                </Text>
+
+                {/* Message */}
+                <Text style={[styles.confirmMessage, { color: colors.textSecondary }]}>
+                  ¿Quieres guardar "{party.title}" en tu calendario?
+                </Text>
+
+                {/* Event Info Preview */}
+                <View style={[styles.eventPreview, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <View style={styles.eventPreviewRow}>
+                    <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.eventPreviewText, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {party.venueName}
+                    </Text>
+                  </View>
+                  <View style={styles.eventPreviewRow}>
+                    <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.eventPreviewText, { color: colors.textSecondary }]}>
+                      {formatDate(party.date)} • {party.startTime} - {party.endTime}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Actions */}
+                <View style={styles.confirmActions}>
+                  <TouchableOpacity
+                    style={[styles.confirmCancelButton, { borderColor: colors.border }]}
+                    onPress={() => setShowCalendarConfirm(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.confirmCancelText, { color: colors.text }]}>
+                      Cancelar
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmSaveButton, { backgroundColor: colors.primary }]}
+                    onPress={handleConfirmAddToCalendar}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="checkmark" size={20} color={isDark ? colors.background : colors.surface} />
+                    <Text style={[styles.confirmSaveText, { color: isDark ? colors.background : colors.surface }]}>
+                      Guardar
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </Container>
   );
 };
@@ -408,6 +510,26 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
     zIndex: 10,
+  },
+  actionButtons: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    flexDirection: 'row',
+    gap: 12,
+    zIndex: 10,
+  },
+  actionButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   content: {
     borderTopLeftRadius: 32,
@@ -580,5 +702,89 @@ const styles = StyleSheet.create({
   tagText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  confirmModal: {
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  confirmIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  confirmTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 20,
+  },
+  eventPreview: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+  },
+  eventPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  eventPreviewText: {
+    fontSize: 14,
+    flex: 1,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  confirmCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmSaveButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  confirmSaveText: {
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
