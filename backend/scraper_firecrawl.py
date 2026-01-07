@@ -120,21 +120,33 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
             
             # Código del evento
             # Para Sala Rem: formato es /events/slug--fecha-CODIGO (ej: friday-session--sala-rem--26-12-2025-EI7Q)
+            # También puede ser: slug-fecha-CODIGO (ej: jueves-universitario-08-01-20261-5YTV)
             # Para otros: formato es /events/CODIGO (ej: LKB5)
             if 'sala-rem' in venue_slug.lower():
-                # Extraer código del final (últimos 4 caracteres después del último guion)
-                match = re.search(r'/events/[^/]+-([A-Z0-9]{4})$', href)
+                # Patrón mejorado: extraer código después de la fecha (DD-MM-YYYY seguido de posibles dígitos y luego el código)
+                # El código puede tener 4 o más caracteres alfanuméricos
+                # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
+                match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
                 if match:
                     event['code'] = match.group(1)
                 else:
-                    # Fallback: intentar capturar todo y extraer los últimos 4 caracteres
+                    # Fallback: extraer del final de la URL (última parte después del último guion)
                     match = re.search(r'/events/([^/]+)$', href)
                     if match:
                         slug = match.group(1)
                         # El código está al final, después del último guion
+                        # Puede tener 4 o más caracteres
                         parts = slug.split('-')
-                        if len(parts) > 0 and len(parts[-1]) == 4:
-                            event['code'] = parts[-1]
+                        if len(parts) > 0:
+                            last_part = parts[-1]
+                            # Si la última parte es alfanumérica y tiene al menos 4 caracteres, es el código
+                            if last_part.isalnum() and len(last_part) >= 4:
+                                event['code'] = last_part
+                            # Si no, intentar con las últimas 2 partes (por si hay dígitos extra)
+                            elif len(parts) >= 2:
+                                potential_code = parts[-2] + '-' + parts[-1]
+                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
+                                    event['code'] = potential_code
             else:
                 # Formato estándar: /events/CODIGO
                 match = re.search(r'/events/([A-Z0-9-]+)$', href)
@@ -200,13 +212,27 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
 
                 # Extraer código del evento
                 if 'sala-rem' in venue_slug.lower():
-                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO
-                    slug = href.split('/')[-1] if '/' in href else href
-                    parts = slug.split('-')
-                    if len(parts) > 0 and len(parts[-1]) == 4 and parts[-1].isalnum():
-                        code = parts[-1]
+                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO o slug-fecha-CODIGO
+                    # El código puede tener 4 o más caracteres alfanuméricos
+                    code_match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
+                    if code_match:
+                        code = code_match.group(1)
                     else:
-                        code = slug  # Fallback
+                        # Fallback: extraer del final
+                        slug = href.split('/')[-1] if '/' in href else href
+                        parts = slug.split('-')
+                        if len(parts) > 0:
+                            last_part = parts[-1]
+                            if last_part.isalnum() and len(last_part) >= 4:
+                                code = last_part
+                            elif len(parts) >= 2:
+                                potential_code = parts[-2] + '-' + parts[-1]
+                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
+                                    code = potential_code
+                            else:
+                                code = slug  # Fallback final
+                        else:
+                            code = slug  # Fallback final
                 else:
                     code = href.split('/')[-1] if '/' in href else href
                 
@@ -268,9 +294,10 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                 # Extraer código del evento
                 code = None
                 if 'sala-rem' in venue_slug.lower():
-                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO
-                    # Extraer código del final (últimos 4 caracteres después del último guion)
-                    code_match = re.search(r'/events/[^/]+-([A-Z0-9]{4})(?:/|$)', link_url)
+                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO o slug-fecha-CODIGO
+                    # El código puede tener 4 o más caracteres alfanuméricos
+                    # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
+                    code_match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', link_url)
                     if code_match:
                         code = code_match.group(1)
                     else:
@@ -279,8 +306,16 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                         if slug_match:
                             slug = slug_match.group(1)
                             parts = slug.split('-')
-                            if len(parts) > 0 and len(parts[-1]) == 4:
-                                code = parts[-1]
+                            if len(parts) > 0:
+                                last_part = parts[-1]
+                                # Si la última parte es alfanumérica y tiene al menos 4 caracteres, es el código
+                                if last_part.isalnum() and len(last_part) >= 4:
+                                    code = last_part
+                                # Si no, intentar con las últimas 2 partes (por si hay dígitos extra)
+                                elif len(parts) >= 2:
+                                    potential_code = parts[-2] + '-' + parts[-1]
+                                    if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
+                                        code = potential_code
                 else:
                     # Formato estándar: /events/CODIGO
                     code_match = re.search(r'/events/([A-Z0-9-]+)(?:/|$)', link_url)
@@ -823,10 +858,15 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
         
         event_url = f"{base_url}{event_url}"
     
-    # Extraer fecha de la URL si está disponible (formato: --26-12-2025-)
+    # Extraer fecha de la URL si está disponible
+    # Formatos para Sala Rem:
+    # - --DD-MM-YYYY- (ej: --09-01-2026-)
+    # - -DD-MM-YYYY- (ej: -08-01-2026-)
+    # - -DD-MM-YYYYD- (ej: -08-01-20261- donde D es un dígito extra)
     # Esto es especialmente útil para Sala Rem donde la fecha está en la URL
     if not event.get('date_text') and 'sala-rem' in event.get('venue_slug', '').lower():
-        date_match = re.search(r'--(\d{1,2})-(\d{2})-(\d{4})-', event_url)
+        # Patrón flexible: puede tener 1 o 2 guiones antes, y puede tener dígitos extra después del año
+        date_match = re.search(r'-{1,2}(\d{1,2})-(\d{2})-(\d{4})\d*-', event_url)
         if date_match:
             day, month, year = date_match.group(1), date_match.group(2), date_match.group(3)
             month_names = {'01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
@@ -834,7 +874,7 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                           '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'}
             event['date_text'] = f"{day} {month_names.get(month, 'diciembre')}"
             event['_date_parts'] = {'day': day, 'month': month, 'year': year}
-            print(f"      📅 Fecha extraída de URL: {event['date_text']}")
+            print(f"      📅 Fecha extraída de URL: {event['date_text']} ({year})")
     
     try:
         # Solicitar HTML, MARKDOWN y RAWHTML
@@ -1677,9 +1717,10 @@ def transform_to_app_format(events: List[Dict]) -> List[Dict]:
                 fecha = f"{year}-{month}-{day}"
             
             # Si aún no tenemos fecha, intentar extraer de la URL
+            # Patrón flexible para Sala Rem: puede tener 1 o 2 guiones antes, y puede tener dígitos extra después del año
             if fecha == datetime.now().strftime('%Y-%m-%d') and event.get('url'):
                 url = event.get('url', '')
-                date_match = re.search(r'--(\d{1,2})-(\d{2})-(\d{4})-', url)
+                date_match = re.search(r'-{1,2}(\d{1,2})-(\d{2})-(\d{4})\d*-', url)
                 if date_match:
                     day = date_match.group(1).zfill(2)
                     month = date_match.group(2)
