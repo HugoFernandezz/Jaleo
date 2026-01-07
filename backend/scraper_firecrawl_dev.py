@@ -71,10 +71,8 @@ if not API_KEY:
 DATA_DIR = Path(__file__).parent / "data"
 
 # URLs de las discotecas a scrapear
+# TEMPORAL: Solo Sala REM para debugging. Cuando funcione, volver a añadir las otras discotecas.
 VENUE_URLS = [
-    "https://site.fourvenues.com/es/luminata-disco/events",
-    "https://site.fourvenues.com/es/el-club-by-odiseo/events",
-    "https://site.fourvenues.com/es/dodo-club/events",
     "https://web.fourvenues.com/es/sala-rem/events"
 ]
 
@@ -85,6 +83,15 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
     Si se proporciona markdown, también se usa para extraer información.
     raw_html puede contener más información después de que el JavaScript se ejecuta.
     """
+    # #region agent log
+    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html START", {
+        "venue_url": venue_url,
+        "html_length": len(html) if html else 0,
+        "markdown_length": len(markdown) if markdown else 0,
+        "raw_html_length": len(raw_html) if raw_html else 0
+    })
+    # #endregion
+    
     events = []
     soup = BeautifulSoup(html, 'html.parser')
     venue_slug = venue_url.split('/')[-2] if '/events' in venue_url else ''
@@ -92,6 +99,14 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
     # Debug: contar enlaces potenciales
     all_event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
     print(f"   🔍 Debug: {len(all_event_links)} enlaces con '/events/' encontrados")
+    
+    # #region agent log
+    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Enlaces encontrados", {
+        "total_event_links": len(all_event_links),
+        "venue_slug": venue_slug,
+        "sample_hrefs": [link.get('href', '')[:100] for link in all_event_links[:5]] if all_event_links else []
+    })
+    # #endregion
     
     # ESTRATEGIA 1: Enlaces con aria-label (Luminata, Odiseo)
     # Para Sala Rem, también buscar sin aria-label ya que puede tener estructura diferente
@@ -101,6 +116,14 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
         # Para Sala Rem, buscar cualquier enlace con /events/ (más permisivo)
         event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
         print(f"   🔍 Debug Estrategia 1 (Sala Rem): {len(event_links)} enlaces con '/events/' encontrados")
+        
+        # #region agent log
+        debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Sala REM detectada - enlaces encontrados", {
+            "is_sala_rem": is_sala_rem,
+            "event_links_count": len(event_links),
+            "sample_hrefs": [link.get('href', '') for link in event_links[:10]]
+        })
+        # #endregion
     else:
         # Para otras discotecas, buscar con aria-label
         event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
@@ -126,17 +149,44 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
             # También puede ser: slug-fecha-CODIGO (ej: jueves-universitario-08-01-20261-5YTV)
             # Para otros: formato es /events/CODIGO (ej: LKB5)
             if 'sala-rem' in venue_slug.lower():
+                # #region agent log
+                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Intentando extraer código Sala REM", {
+                    "href": href,
+                    "href_length": len(href)
+                })
+                # #endregion
+                
                 # Patrón mejorado: extraer código después de la fecha (DD-MM-YYYY seguido de posibles dígitos y luego el código)
                 # El código puede tener 4 o más caracteres alfanuméricos
                 # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
                 match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
                 if match:
                     event['code'] = match.group(1)
+                    # #region agent log
+                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído con patrón principal", {
+                        "code": event['code'],
+                        "href": href
+                    })
+                    # #endregion
                 else:
+                    # #region agent log
+                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Patrón principal falló, intentando fallback", {
+                        "href": href,
+                        "pattern_tried": r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)'
+                    })
+                    # #endregion
+                    
                     # Fallback: extraer del final de la URL (última parte después del último guion)
                     match = re.search(r'/events/([^/]+)$', href)
                     if match:
                         slug = match.group(1)
+                        # #region agent log
+                        debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Slug extraído para fallback", {
+                            "slug": slug,
+                            "slug_parts": slug.split('-')
+                        })
+                        # #endregion
+                        
                         # El código está al final, después del último guion
                         # Puede tener 4 o más caracteres
                         parts = slug.split('-')
@@ -145,11 +195,31 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                             # Si la última parte es alfanumérica y tiene al menos 4 caracteres, es el código
                             if last_part.isalnum() and len(last_part) >= 4:
                                 event['code'] = last_part
+                                # #region agent log
+                                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído del último segmento", {
+                                    "code": event['code'],
+                                    "last_part": last_part
+                                })
+                                # #endregion
                             # Si no, intentar con las últimas 2 partes (por si hay dígitos extra)
                             elif len(parts) >= 2:
                                 potential_code = parts[-2] + '-' + parts[-1]
                                 if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
                                     event['code'] = potential_code
+                                    # #region agent log
+                                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído de últimos 2 segmentos", {
+                                        "code": event['code'],
+                                        "potential_code": potential_code
+                                    })
+                                    # #endregion
+                            else:
+                                # #region agent log
+                                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "NO se pudo extraer código", {
+                                    "href": href,
+                                    "parts": parts,
+                                    "last_part": last_part if len(parts) > 0 else None
+                                })
+                                # #endregion
             else:
                 # Formato estándar: /events/CODIGO
                 match = re.search(r'/events/([A-Z0-9-]+)$', href)
@@ -191,8 +261,34 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                 event['hora_inicio'] = horario_match.group(1)
                 event['hora_fin'] = horario_match.group(2)
             
+            # #region agent log
+            debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento procesado - validación", {
+                "has_name": bool(event.get('name')),
+                "has_code": bool(event.get('code')),
+                "name": event.get('name', ''),
+                "code": event.get('code', ''),
+                "href": href,
+                "will_be_added": bool(event.get('name') and event.get('code'))
+            })
+            # #endregion
+            
             if event.get('name') and event.get('code'):
                 events.append(event)
+                # #region agent log
+                debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento añadido", {
+                    "event_name": event.get('name'),
+                    "event_code": event.get('code'),
+                    "total_events": len(events)
+                })
+                # #endregion
+            else:
+                # #region agent log
+                debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento DESCARTADO (falta nombre o código)", {
+                    "has_name": bool(event.get('name')),
+                    "has_code": bool(event.get('code')),
+                    "href": href
+                })
+                # #endregion
         except:
             continue
 
@@ -613,6 +709,13 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
         
         print(f"   🔍 Markdown: {len(events)} eventos encontrados")
 
+    # #region agent log
+    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html END", {
+        "total_events": len(events),
+        "events_summary": [{"name": e.get('name', ''), "code": e.get('code', ''), "url": e.get('url', '')[:100]} for e in events[:10]]
+    })
+    # #endregion
+
     return events
 
 
@@ -671,13 +774,48 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
         if markdown:
             print(f"   Markdown: {len(markdown)} caracteres")
         
+        # #region agent log
+        debug_log("debug-session", "run1", "D", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Datos recibidos de Firecrawl", {
+            "url": url,
+            "is_sala_rem": is_sala_rem,
+            "status": status,
+            "html_length": len(html),
+            "raw_html_length": len(raw_html) if raw_html else 0,
+            "markdown_length": len(markdown) if markdown else 0,
+            "has_html": bool(html),
+            "has_raw_html": bool(raw_html),
+            "has_markdown": bool(markdown)
+        })
+        # #endregion
+        
         if not html and not raw_html:
             print("   ❌ No se recibió HTML")
+            # #region agent log
+            debug_log("debug-session", "run1", "D", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "ERROR: No se recibió HTML", {
+                "url": url
+            })
+            # #endregion
             return []
         
         # Para Sala Rem, usar raw_html si está disponible (puede tener más información después del JS)
         html_to_use = raw_html if is_sala_rem and raw_html and len(raw_html) > len(html) else html
+        
+        # #region agent log
+        debug_log("debug-session", "run1", "D", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "HTML seleccionado para extracción", {
+            "html_to_use_length": len(html_to_use),
+            "using_raw_html": html_to_use == raw_html,
+            "using_html": html_to_use == html
+        })
+        # #endregion
+        
         events = extract_events_from_html(html_to_use, url, markdown, raw_html=raw_html)
+        
+        # #region agent log
+        debug_log("debug-session", "run1", "D", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Eventos extraídos después de extract_events_from_html", {
+            "events_count": len(events),
+            "events": [{"name": e.get('name', ''), "code": e.get('code', '')} for e in events[:5]]
+        })
+        # #endregion
         
         # Si sigue sin pillar nada, intentar un segundo intento con JS más agresivo
         # Aplicar a Dodo Club y Sala Rem (ambos pueden tener estructuras similares o necesitar más tiempo)

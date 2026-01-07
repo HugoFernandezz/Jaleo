@@ -49,6 +49,8 @@ jobs:
         if: always()
         with:
           name: scraped-data-dev-${{ github.run_number }}
-          path: backend/data/*.json
+          path: |
+            backend/data/*.json
+            .cursor/debug.log
           retention-days: 7
 
