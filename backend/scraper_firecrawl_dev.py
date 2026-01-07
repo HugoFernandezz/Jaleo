@@ -76,65 +76,146 @@ VENUE_URLS = [
     "https://web.fourvenues.com/es/sala-rem/events"
 ]
 
+# ============================================================================
+# FUNCIONES DE UTILIDAD CENTRALIZADAS
+# ============================================================================
 
-def extract_events_from_html(html: str, venue_url: str, markdown: str = None, raw_html: str = None) -> List[Dict]:
+# Patrones de URLs inválidas (plantillas de JavaScript, código, etc.)
+INVALID_URL_PATTERNS = [
+    r'\$\*\*\*',           # Plantillas de template $***
+    r'Message\.',          # Código JavaScript Message.
+    r'evento_slug',        # Variables de template
+    r'evento_codigo',       # Variables de template
+    r'function\s*\(',      # Código JavaScript
+    r'window\.',            # Código JavaScript
+    r'var\s+\w+\s*=',       # Declaraciones de variables
+    r'createelement',       # Código JavaScript
+]
+
+
+def is_valid_event_url(url: str, code: str = None) -> bool:
     """
-    Extrae eventos del HTML de FourVenues de forma robusta.
-    Si se proporciona markdown, también se usa para extraer información.
-    raw_html puede contener más información después de que el JavaScript se ejecuta.
+    Valida que una URL de evento sea real y no una plantilla de JS.
+    
+    Checks:
+    1. No contiene patrones de código JS
+    2. Tiene código alfanumérico de 4+ caracteres (si se proporciona)
+    3. Contiene '/events/' en el path
+    4. No está vacía
+    5. No contiene caracteres inválidos en el slug
+    
+    Args:
+        url: URL a validar
+        code: Código extraído (opcional, para validación adicional)
+    
+    Returns:
+        True si la URL es válida, False en caso contrario
     """
-    # #region agent log
-    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html START", {
-        "venue_url": venue_url,
-        "html_length": len(html) if html else 0,
-        "markdown_length": len(markdown) if markdown else 0,
-        "raw_html_length": len(raw_html) if raw_html else 0
-    })
-    # #endregion
+    if not url or len(url) < 10:
+        return False
     
-    events = []
-    soup = BeautifulSoup(html, 'html.parser')
-    venue_slug = venue_url.split('/')[-2] if '/events' in venue_url else ''
+    # Verificar que contiene /events/
+    if '/events/' not in url:
+        return False
     
-    # Debug: contar enlaces potenciales
-    all_event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
-    print(f"   🔍 Debug: {len(all_event_links)} enlaces con '/events/' encontrados")
+    # Verificar patrones inválidos
+    for pattern in INVALID_URL_PATTERNS:
+        if re.search(pattern, url, re.IGNORECASE):
+            return False
     
-    # #region agent log
-    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Enlaces encontrados", {
-        "total_event_links": len(all_event_links),
-        "venue_slug": venue_slug,
-        "sample_hrefs": [link.get('href', '')[:100] for link in all_event_links[:5]] if all_event_links else []
-    })
-    # #endregion
+    # Extraer slug y validar
+    if '/events/' in url:
+        url_slug = url.split('/events/')[-1].split('?')[0].split('#')[0].strip()
+        if not url_slug:
+            return False
+        
+        # Validar que el slug no contiene caracteres inválidos
+        invalid_chars = ['$***', 'Message.', 'evento_', 'function', 'window']
+        if any(invalid_char in url_slug for invalid_char in invalid_chars):
+            return False
     
-    # ESTRATEGIA 1: Enlaces con aria-label (Luminata, Odiseo)
-    # Para Sala Rem, también buscar sin aria-label ya que puede tener estructura diferente
+    # Si se proporciona código, validar que es alfanumérico y tiene 4+ caracteres
+    if code:
+        if not code.replace('-', '').isalnum() or len(code.replace('-', '')) < 4:
+            return False
+    
+    return True
+
+
+def extract_code_from_url(url: str, venue_slug: str) -> Optional[str]:
+    """
+    Extrae el código de evento de una URL de forma centralizada.
+    
+    Maneja múltiples formatos:
+    - Sala REM: /events/slug--fecha-CODIGO o slug-fecha-CODIGO
+      Ejemplos: friday-session--sala-rem--09-01-2026-HZOY
+                jueves-universitario-08-01-20261-5YTV
+    - Otros venues: /events/CODIGO
+      Ejemplo: /events/LKB5
+    
+    Args:
+        url: URL del evento
+        venue_slug: Slug del venue (ej: 'sala-rem', 'luminata-disco')
+    
+    Returns:
+        Código del evento o None si no se puede extraer
+    """
+    if not url or '/events/' not in url:
+        return None
+    
     is_sala_rem = 'sala-rem' in venue_slug.lower()
     
     if is_sala_rem:
-        # Para Sala Rem, buscar cualquier enlace con /events/ (más permisivo)
-        event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
-        print(f"   🔍 Debug Estrategia 1 (Sala Rem): {len(event_links)} enlaces con '/events/' encontrados")
+        # PATRÓN 1: Código después de fecha (DD-MM-YYYY seguido de posibles dígitos y luego el código)
+        # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
+        match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', url)
+        if match:
+            return match.group(1)
         
-        # #region agent log
-        debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Sala REM detectada - enlaces encontrados", {
-            "is_sala_rem": is_sala_rem,
-            "event_links_count": len(event_links),
-            "sample_hrefs": [link.get('href', '') for link in event_links[:10]]
-        })
-        # #endregion
+        # PATRÓN 2: Fallback - extraer del final de la URL
+        slug_match = re.search(r'/events/([^/]+)(?:/|$)', url)
+        if slug_match:
+            slug = slug_match.group(1)
+            parts = slug.split('-')
+            
+            if len(parts) > 0:
+                # Intentar con el último segmento
+                last_part = parts[-1]
+                if last_part.isalnum() and len(last_part) >= 4:
+                    return last_part
+                
+                # Intentar con los últimos 2 segmentos (por si hay dígitos extra)
+                if len(parts) >= 2:
+                    potential_code = '-'.join(parts[-2:])
+                    if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
+                        return potential_code
     else:
-        # Para otras discotecas, buscar con aria-label
+        # Formato estándar: /events/CODIGO
+        match = re.search(r'/events/([A-Z0-9-]+)(?:/|$)', url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+
+def extract_from_html_links(soup: BeautifulSoup, venue_slug: str) -> List[Dict]:
+    """
+    Extrae eventos desde enlaces <a> con aria-label o href.
+    ESTRATEGIA 1: Para Luminata, Odiseo y Sala REM.
+    """
+    events = []
+    is_sala_rem = 'sala-rem' in venue_slug.lower()
+    
+    if is_sala_rem:
+        event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
+    else:
         event_links = soup.find_all('a', href=lambda x: x and '/events/' in x and x.count('/') >= 4)
-        print(f"   🔍 Debug Estrategia 1: {len(event_links)} enlaces con 4+ '/' encontrados")
     
     for link in event_links:
         try:
             href = link.get('href', '')
             aria_label = link.get('aria-label', '')
             
-            # Para Sala Rem, no requerir aria-label
             if not is_sala_rem and (not aria_label or 'Evento' not in aria_label):
                 continue
             
@@ -144,765 +225,325 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                 'image': link.find('img').get('src', '') if link.find('img') else ''
             }
             
-            # Código del evento
-            # Para Sala Rem: formato es /events/slug--fecha-CODIGO (ej: friday-session--sala-rem--26-12-2025-EI7Q)
-            # También puede ser: slug-fecha-CODIGO (ej: jueves-universitario-08-01-20261-5YTV)
-            # Para otros: formato es /events/CODIGO (ej: LKB5)
-            if 'sala-rem' in venue_slug.lower():
-                # #region agent log
-                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Intentando extraer código Sala REM", {
-                    "href": href,
-                    "href_length": len(href)
-                })
-                # #endregion
-                
-                # Patrón mejorado: extraer código después de la fecha (DD-MM-YYYY seguido de posibles dígitos y luego el código)
-                # El código puede tener 4 o más caracteres alfanuméricos
-                # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
-                match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
-                if match:
-                    event['code'] = match.group(1)
-                    # #region agent log
-                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído con patrón principal", {
-                        "code": event['code'],
-                        "href": href
-                    })
-                    # #endregion
-                else:
-                    # #region agent log
-                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Patrón principal falló, intentando fallback", {
-                        "href": href,
-                        "pattern_tried": r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)'
-                    })
-                    # #endregion
-                    
-                    # Fallback: extraer del final de la URL (última parte después del último guion)
-                    match = re.search(r'/events/([^/]+)$', href)
-                    if match:
-                        slug = match.group(1)
-                        # #region agent log
-                        debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Slug extraído para fallback", {
-                            "slug": slug,
-                            "slug_parts": slug.split('-')
-                        })
-                        # #endregion
-                        
-                        # El código está al final, después del último guion
-                        # Puede tener 4 o más caracteres
-                        parts = slug.split('-')
-                        if len(parts) > 0:
-                            last_part = parts[-1]
-                            # Si la última parte es alfanumérica y tiene al menos 4 caracteres, es el código
-                            if last_part.isalnum() and len(last_part) >= 4:
-                                event['code'] = last_part
-                                # #region agent log
-                                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído del último segmento", {
-                                    "code": event['code'],
-                                    "last_part": last_part
-                                })
-                                # #endregion
-                            # Si no, intentar con las últimas 2 partes (por si hay dígitos extra)
-                            elif len(parts) >= 2:
-                                potential_code = parts[-2] + '-' + parts[-1]
-                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
-                                    event['code'] = potential_code
-                                    # #region agent log
-                                    debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Código extraído de últimos 2 segmentos", {
-                                        "code": event['code'],
-                                        "potential_code": potential_code
-                                    })
-                                    # #endregion
-                            else:
-                                # #region agent log
-                                debug_log("debug-session", "run1", "B", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "NO se pudo extraer código", {
-                                    "href": href,
-                                    "parts": parts,
-                                    "last_part": last_part if len(parts) > 0 else None
-                                })
-                                # #endregion
-            else:
-                # Formato estándar: /events/CODIGO
-                match = re.search(r'/events/([A-Z0-9-]+)$', href)
-                if match:
-                    event['code'] = match.group(1)
+            event['code'] = extract_code_from_url(href, venue_slug)
+            if not event['code']:
+                continue
             
-            # Parsear aria-label (solo si existe)
             if aria_label:
                 name_match = re.search(r'Evento\s*:\s*(.+?)(?:\.\s*Edad|\s*$)', aria_label)
-                if name_match: event['name'] = name_match.group(1).strip()
+                if name_match:
+                    event['name'] = name_match.group(1).strip()
                 
                 age_match = re.search(r'Edad mínima:\s*(.+?)(?:\.\s*Fecha|\s*$)', aria_label)
                 if age_match:
                     event['age_info'] = age_match.group(1).strip()
                     num_match = re.search(r'(\d+)', age_match.group(1))
-                    if num_match: event['age_min'] = int(num_match.group(1))
+                    if num_match:
+                        event['age_min'] = int(num_match.group(1))
                 
                 fecha_match = re.search(r'Fecha:\s*(.+?)(?:\.\s*Horario|\s*$)', aria_label)
-                if fecha_match: event['date_text'] = fecha_match.group(1).strip()
+                if fecha_match:
+                    event['date_text'] = fecha_match.group(1).strip()
                 
                 horario_match = re.search(r'Horario:\s*de\s*(\d{1,2}:\d{2})\s*a\s*(\d{1,2}:\d{2})', aria_label)
-            else:
-                horario_match = None
+                if horario_match:
+                    event['hora_inicio'] = horario_match.group(1)
+                    event['hora_fin'] = horario_match.group(2)
             
-            # Para Sala Rem, si no hay nombre, intentar obtenerlo del texto del enlace o elementos cercanos
             if is_sala_rem and not event.get('name'):
                 link_text = link.get_text(strip=True)
                 if link_text and len(link_text) > 5:
-                    event['name'] = link_text[:100]  # Limitar longitud
+                    event['name'] = link_text[:100]
                 else:
-                    # Buscar en elementos padre
                     parent = link.find_parent()
                     if parent:
                         parent_text = parent.get_text(strip=True)
                         if parent_text and len(parent_text) > 5:
                             event['name'] = parent_text[:100]
             
-            if horario_match:
-                event['hora_inicio'] = horario_match.group(1)
-                event['hora_fin'] = horario_match.group(2)
-            
-            # #region agent log
-            debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento procesado - validación", {
-                "has_name": bool(event.get('name')),
-                "has_code": bool(event.get('code')),
-                "name": event.get('name', ''),
-                "code": event.get('code', ''),
-                "href": href,
-                "will_be_added": bool(event.get('name') and event.get('code'))
-            })
-            # #endregion
-            
             if event.get('name') and event.get('code'):
                 events.append(event)
-                # #region agent log
-                debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento añadido", {
-                    "event_name": event.get('name'),
-                    "event_code": event.get('code'),
-                    "total_events": len(events)
-                })
-                # #endregion
-            else:
-                # #region agent log
-                debug_log("debug-session", "run1", "C", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Evento DESCARTADO (falta nombre o código)", {
-                    "has_name": bool(event.get('name')),
-                    "has_code": bool(event.get('code')),
-                    "href": href
-                })
-                # #endregion
         except:
             continue
+    
+    return events
 
-    # ESTRATEGIA 2: Componentes personalizados / data-testid (Dodo Club)
-    if not events:
-        event_cards = soup.find_all(attrs={"data-testid": ["event-card", "event-card-name"]})
-        print(f"   🔍 Debug Estrategia 2a: {len(event_cards)} elementos con data-testid encontrados")
-        if not event_cards:
-            event_cards = soup.find_all('div', class_=lambda x: x and 'event' in x and 'card' in x)
-            print(f"   🔍 Debug Estrategia 2b: {len(event_cards)} divs con 'event' y 'card' encontrados")
 
-        for card in event_cards:
-            try:
-                link_elem = card.find_parent('a') or card.find('a') or (card if card.name == 'a' else None)
-                if not link_elem: continue
-                
-                href = link_elem.get('href', '')
-                if not href or '/events/' not in href: continue
-                if any(e['url'] == href for e in events): continue
-
-                # Extraer código del evento
-                if 'sala-rem' in venue_slug.lower():
-                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO o slug-fecha-CODIGO
-                    # El código puede tener 4 o más caracteres alfanuméricos
-                    code_match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
-                    if code_match:
-                        code = code_match.group(1)
-                    else:
-                        # Fallback: extraer del final
-                        slug = href.split('/')[-1] if '/' in href else href
-                        parts = slug.split('-')
-                        if len(parts) > 0:
-                            last_part = parts[-1]
-                            if last_part.isalnum() and len(last_part) >= 4:
-                                code = last_part
-                            elif len(parts) >= 2:
-                                potential_code = parts[-2] + '-' + parts[-1]
-                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
-                                    code = potential_code
-                            else:
-                                code = slug  # Fallback final
-                        else:
-                            code = slug  # Fallback final
-                else:
-                    code = href.split('/')[-1] if '/' in href else href
-                
-                event = {
-                    'url': href,
-                    'venue_slug': venue_slug,
-                    'name': card.get_text(strip=True) if card.name != 'a' else link_elem.get('aria-label', 'Evento'),
-                    'code': code
-                }
-                events.append(event)
-            except:
+def extract_from_custom_components(soup: BeautifulSoup, venue_slug: str) -> List[Dict]:
+    """
+    Busca data-testid y componentes custom (Dodo Club style).
+    ESTRATEGIA 2: Para venues con componentes personalizados.
+    """
+    events = []
+    event_cards = soup.find_all(attrs={"data-testid": ["event-card", "event-card-name"]})
+    if not event_cards:
+        event_cards = soup.find_all('div', class_=lambda x: x and 'event' in x and 'card' in x)
+    
+    for card in event_cards:
+        try:
+            link_elem = card.find_parent('a') or card.find('a') or (card if card.name == 'a' else None)
+            if not link_elem:
                 continue
-
-    # ESTRATEGIA 3: Fallback Simple (más permisivo - cualquier enlace con /events/)
-    if not events:
-        print(f"   🔍 Debug Estrategia 3: Intentando fallback simple...")
-        for link in soup.find_all('a', href=lambda x: x and '/events/' in x):
-            href = link.get('href', '')
-            if any(e['url'] == href for e in events): continue
             
-            # Extraer código del evento de la URL
-            code = href.split('/')[-1] if '/' in href else href
-            # Obtener nombre del enlace o del texto
-            name = link.get('aria-label', '') or link.get_text(strip=True) or 'Evento'
+            href = link_elem.get('href', '')
+            if not href or '/events/' not in href:
+                continue
             
-            # Si no tiene nombre útil, intentar obtenerlo del href o elementos cercanos
-            if name == 'Evento' or not name:
-                # Buscar en el texto del enlace o elementos padre
-                parent_text = link.find_parent().get_text(strip=True) if link.find_parent() else ''
-                if parent_text and len(parent_text) > 5:
-                    name = parent_text[:100]  # Limitar longitud
+            code = extract_code_from_url(href, venue_slug)
+            if not code:
+                continue
             
-            events.append({
+            event = {
                 'url': href,
                 'venue_slug': venue_slug,
-                'name': name,
+                'name': card.get_text(strip=True) if card.name != 'a' else link_elem.get('aria-label', 'Evento'),
                 'code': code
-            })
-        print(f"   🔍 Debug Estrategia 3: {len(events)} eventos encontrados con fallback")
+            }
+            events.append(event)
+        except:
+            continue
     
-    # ESTRATEGIA 4: Extraer desde markdown si está disponible y no encontramos eventos
-    if not events and markdown:
-        print(f"   🔍 Intentando extraer desde markdown ({len(markdown)} caracteres)...")
-        # Debug: mostrar preview del markdown
-        if len(markdown) > 0:
-            preview = markdown[:500] if len(markdown) > 500 else markdown
-            print(f"   🔍 Markdown preview: {preview[:200]}...")
-        
-        # Buscar enlaces en markdown (formato: [texto](url))
-        markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', markdown)
-        print(f"   🔍 Markdown links encontrados: {len(markdown_links)}")
-        # Debug: mostrar los primeros enlaces encontrados
-        if markdown_links:
-            for i, (text, url) in enumerate(markdown_links[:5]):
-                print(f"   🔍 Link {i+1}: [{text}]({url})")
-        
-        for link_text, link_url in markdown_links:
-            if '/events/' in link_url:
-                # Extraer código del evento
-                code = None
-                if 'sala-rem' in venue_slug.lower():
-                    # Para Sala Rem: formato es /events/slug--fecha-CODIGO o slug-fecha-CODIGO
-                    # El código puede tener 4 o más caracteres alfanuméricos
-                    # Ejemplos: -08-01-20261-5YTV, --09-01-2026-HZOY, -10-01-2026-XTNE
-                    code_match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', link_url)
-                    if code_match:
-                        code = code_match.group(1)
-                    else:
-                        # Fallback: extraer del final de la URL
-                        slug_match = re.search(r'/events/([^/]+)(?:/|$)', link_url)
-                        if slug_match:
-                            slug = slug_match.group(1)
-                            parts = slug.split('-')
-                            if len(parts) > 0:
-                                last_part = parts[-1]
-                                # Si la última parte es alfanumérica y tiene al menos 4 caracteres, es el código
-                                if last_part.isalnum() and len(last_part) >= 4:
-                                    code = last_part
-                                # Si no, intentar con las últimas 2 partes (por si hay dígitos extra)
-                                elif len(parts) >= 2:
-                                    potential_code = parts[-2] + '-' + parts[-1]
-                                    if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
-                                        code = potential_code
-                else:
-                    # Formato estándar: /events/CODIGO
-                    code_match = re.search(r'/events/([A-Z0-9-]+)(?:/|$)', link_url)
-                    if code_match:
-                        code = code_match.group(1)
-                
-                if code:
-                    # Hacer URL absoluta si es relativa
-                    if not link_url.startswith('http'):
-                        if 'sala-rem' in venue_slug.lower():
-                            link_url = f"https://web.fourvenues.com{link_url}"
-                        else:
-                            link_url = f"https://site.fourvenues.com{link_url}"
-                    
-                    events.append({
-                        'url': link_url,
-                        'venue_slug': venue_slug,
-                        'name': link_text.strip(),
-                        'code': code
-                    })
-        
-        # Si aún no hay eventos, buscar URLs de eventos directamente en el texto markdown y HTML
-        if not events:
-            print(f"   🔍 Buscando URLs de eventos directamente en markdown y HTML...")
-            if 'sala-rem' in venue_slug.lower():
-                # Buscar en markdown primero
-                event_urls_md = re.findall(r'/es/sala-rem/events/([^/\s\)]+)', markdown)
-                print(f"   🔍 URLs encontradas en markdown: {len(event_urls_md)}")
-                
-                # También buscar en HTML (puede tener más información)
-                if html:
-                    # Buscar enlaces <a> con href que contenga /events/
-                    html_links = re.findall(r'href=["\']([^"\']*sala-rem/events/[^"\']+)["\']', html, re.IGNORECASE)
-                    print(f"   🔍 URLs encontradas en HTML: {len(html_links)}")
-                    # Combinar ambas fuentes
-                    all_urls = set(event_urls_md + [url.split('/events/')[-1] if '/events/' in url else url for url in html_links])
-                else:
-                    all_urls = set(event_urls_md)
-                
-                codes_found = set()
-                for url_slug in all_urls:
-                    # Limpiar la URL (puede tener parámetros o fragmentos)
-                    url_slug = url_slug.split('?')[0].split('#')[0]
-                    # Extraer código del final
-                    parts = url_slug.split('-')
-                    if len(parts) > 0 and len(parts[-1]) == 4 and parts[-1].isalnum():
-                        code = parts[-1]
-                        codes_found.add(code)
-                        event_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
-                        events.append({
-                            'url': event_url,
-                            'venue_slug': venue_slug,
-                            'name': f"Evento {code}",  # Nombre genérico, se actualizará al scrapear detalles
-                            'code': code
-                        })
-                    else:
-                        print(f"   🔍 URL slug no válido: {url_slug}")
-                print(f"   🔍 URLs directas encontradas (Sala Rem): {len(codes_found)} códigos únicos")
-                
-                # ESTRATEGIA: Buscar URLs completas en rawHtml primero (más información después del JS)
-                # PRIORIDAD: Extraer URLs reales del HTML/rawHtml en lugar de construirlas
-                # Esto hace el scraper adaptable a cualquier formato futuro
-                if not events:
-                    # Usar rawHtml si está disponible (tiene más información después del JS)
-                    html_to_search = raw_html if raw_html and len(raw_html) > len(html) else html
-                    if html_to_search:
-                        print(f"   🔍 Buscando URLs reales de eventos en {'rawHtml' if raw_html and len(raw_html) > len(html) else 'HTML'}...")
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Buscando URLs reales en HTML/rawHtml", {
-                            "html_length": len(html),
-                            "raw_html_length": len(raw_html) if raw_html else 0,
-                            "using_raw_html": html_to_search == raw_html
-                        })
-                        # #endregion
-                        
-                        # ESTRATEGIA ADICIONAL: Usar BeautifulSoup para extraer enlaces <a> reales
-                        # Esto es más confiable que regex para encontrar URLs en HTML
-                        soup_to_search = BeautifulSoup(html_to_search, 'html.parser')
-                        soup_links = soup_to_search.find_all('a', href=True)
-                        soup_event_urls = []
-                        for link in soup_links:
-                            href = link.get('href', '')
-                            if href and 'sala-rem' in href.lower() and '/events/' in href:
-                                soup_event_urls.append(href)
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Enlaces encontrados con BeautifulSoup", {
-                            "total_links": len(soup_links),
-                            "event_links": len(soup_event_urls),
-                            "sample_hrefs": [h[:100] for h in soup_event_urls[:5]]
-                        })
-                        # #endregion
-                        
-                        # Buscar todas las URLs que contengan sala-rem/events con múltiples patrones flexibles
-                        # ADAPTATIVO: Usar patrones amplios para capturar cualquier formato de URL
-                        # Priorizar rawHtml si está disponible (tiene más información después del JS)
-                        html_event_urls = []
-                        
-                        # Patrón 1: URLs completas con https:// o http:// (más flexible)
-                        html_event_urls += re.findall(r'https?://[^\s"\'<>\)]+sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
-                        # Patrón 2: URLs relativas /es/sala-rem/events/ o /sala-rem/events/ (más flexible)
-                        html_event_urls += re.findall(r'/es/sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
-                        html_event_urls += re.findall(r'/sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
-                        # Patrón 3: URLs en atributos href, data-href, data-url, url, etc. (más flexible)
-                        html_event_urls += re.findall(r'(?:href|data-href|data-url|url|link|to|path)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
-                        # Patrón 4: URLs en JSON/JavaScript (más común en rawHtml después del JS) - más flexible
-                        html_event_urls += re.findall(r'["\']([^"\']*sala-rem/events/[^"\']+)["\']', html_to_search, re.IGNORECASE)
-                        # Patrón 5: URLs en atributos de elementos (data-*, aria-*, etc.)
-                        html_event_urls += re.findall(r'(?:data-|aria-)\w+["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
-                        # Patrón 6: URLs en strings de JavaScript (sin comillas específicas)
-                        html_event_urls += re.findall(r'(?:url|href|link|path)\s*[:=]\s*([^\s,;\)]+sala-rem/events/[^\s,;\)]+)', html_to_search, re.IGNORECASE)
-                        # Patrón 7: Buscar cualquier ocurrencia de "sala-rem/events/" seguida de caracteres válidos para URL
-                        # Más restrictivo: solo caracteres válidos para URLs (letras, números, guiones, barras)
-                        html_event_urls += re.findall(r'sala-rem/events/[a-zA-Z0-9\-_/]+', html_to_search, re.IGNORECASE)
-                        
-                        # Combinar URLs encontradas con regex y BeautifulSoup
-                        html_event_urls = list(set(html_event_urls + soup_event_urls))
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Patrones de búsqueda aplicados", {
-                            "total_urls_regex": len(html_event_urls) - len(soup_event_urls),
-                            "total_urls_soup": len(soup_event_urls),
-                            "total_urls_unicas": len(html_event_urls),
-                            "usando_raw_html": html_to_search == raw_html,
-                            "html_length": len(html),
-                            "raw_html_length": len(raw_html) if raw_html else 0,
-                            "sample_urls": html_event_urls[:5]
-                        })
-                        # #endregion
-                        
-                        print(f"   🔍 URLs de eventos encontradas en HTML: {len(html_event_urls)}")
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URLs encontradas (antes de filtrar)", {
-                            "total_urls": len(html_event_urls),
-                            "sample_urls": html_event_urls[:5]
-                        })
-                        # #endregion
-                        
-                        # Si encontramos URLs completas, usarlas directamente (más confiable)
-                        # Filtrar y normalizar URLs - ADAPTATIVO: no asumir formato específico
-                        unique_urls = []
-                        seen_slugs = set()
-                        for event_url in html_event_urls:
-                            # Limpiar URL (puede tener espacios, caracteres especiales, etc.)
-                            event_url = event_url.strip().strip('"').strip("'").strip()
-                            if not event_url or len(event_url) < 10:
-                                continue
-                            
-                            # FILTRAR URLs falsas: plantillas de JavaScript, código, etc.
-                            # URLs reales no deberían contener estos patrones
-                            invalid_patterns = [
-                                r'\$\*\*\*',  # Plantillas de template $***
-                                r'Message\.',  # Código JavaScript Message.
-                                r'evento_slug',  # Variables de template
-                                r'evento_codigo',  # Variables de template
-                                r'function\s*\(',  # Código JavaScript
-                                r'window\.',  # Código JavaScript
-                                r'var\s+\w+\s*=',  # Declaraciones de variables
-                                r'createelement',  # Código JavaScript
-                            ]
-                            
-                            # Verificar si la URL contiene patrones inválidos
-                            is_invalid = False
-                            for pattern in invalid_patterns:
-                                if re.search(pattern, event_url, re.IGNORECASE):
-                                    is_invalid = True
-                                    # #region agent log
-                                    debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URL rechazada (patrón inválido)", {
-                                        "url": event_url[:100],
-                                        "pattern": pattern
-                                    })
-                                    # #endregion
-                                    break
-                            
-                            if is_invalid:
-                                continue
-                            
-                            # Hacer URL absoluta si es relativa
-                            if not event_url.startswith('http'):
-                                if event_url.startswith('/'):
-                                    event_url = f"https://web.fourvenues.com{event_url}"
-                                else:
-                                    event_url = f"https://web.fourvenues.com/{event_url}"
-                            
-                            # Extraer slug único para deduplicar (todo después de /events/)
-                            if '/events/' not in event_url:
-                                continue
-                            
-                            url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0].strip()
-                            if not url_slug or url_slug in seen_slugs:
-                                continue
-                            
-                            # Validar que el slug no contiene caracteres inválidos (plantillas, código, etc.)
-                            if any(pattern in url_slug for pattern in ['$***', 'Message.', 'evento_', 'function', 'window']):
-                                # #region agent log
-                                debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Slug rechazado (caracteres inválidos)", {
-                                    "url_slug": url_slug
-                                })
-                                # #endregion
-                                continue
-                            
-                            # ADAPTATIVO: Aceptar CUALQUIER URL que contenga /events/ y pase las validaciones básicas
-                            # No asumir formatos específicos - el scraper debe ser adaptable a cualquier formato futuro
-                            seen_slugs.add(url_slug)
-                            
-                            # Extraer código de forma flexible: buscar alfanuméricos al final (4+ caracteres)
-                            # No asumir formato específico, solo que el código probablemente está al final
-                            code = None
-                            slug_parts = url_slug.split('-')
-                            
-                            # Buscar desde el final hacia atrás un segmento alfanumérico de 4+ caracteres
-                            for i in range(len(slug_parts) - 1, -1, -1):
-                                part = slug_parts[i]
-                                if part.isalnum() and len(part) >= 4:
-                                    code = part
-                                    break
-                                elif part.replace('-', '').isalnum() and len(part.replace('-', '')) >= 4:
-                                    code = part
-                                    break
-                            
-                            # Si no encontramos código, intentar con los últimos 2 segmentos combinados
-                            if not code and len(slug_parts) >= 2:
-                                potential_code = '-'.join(slug_parts[-2:])
-                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
-                                    code = potential_code
-                            
-                            # ADAPTATIVO: Si aún no hay código, generar uno desde el slug
-                            # Esto permite que el scraper funcione incluso si el formato cambia
-                            if not code:
-                                # Usar los últimos caracteres del slug como código temporal
-                                code = url_slug[-8:] if len(url_slug) >= 8 else url_slug
-                            
-                            # Extraer nombre del slug de forma flexible
-                            # Intentar inferir nombre desde el slug, pero no asumir formato específico
-                            code_index = url_slug.rfind(code) if code and code in url_slug else -1
-                            if code_index > 0:
-                                name_part = url_slug[:code_index].rstrip('-')
-                                name_from_slug = name_part.replace('-', ' ').title() if name_part else f"Evento {code}"
-                            else:
-                                # Si no podemos encontrar el código, usar todo el slug como nombre
-                                name_from_slug = url_slug.replace('-', ' ').title() if url_slug else f"Evento {code}"
-                            
-                            unique_urls.append((event_url, code, name_from_slug))
-                            
-                            # #region agent log
-                            debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URL procesada y añadida", {
-                                "url": event_url,
-                                "code": code,
-                                "name": name_from_slug,
-                                "url_slug": url_slug
-                            })
-                            # #endregion
-                        
-                        print(f"   🔍 Procesando {len(unique_urls)} URLs únicas de eventos...")
-                        
-                        for event_url, code, name_from_slug in unique_urls:
-                            events.append({
-                                'url': event_url,
-                                'venue_slug': venue_slug,
-                                'name': name_from_slug,
-                                'code': code
-                            })
-                            print(f"   🔍 Evento encontrado en HTML: {name_from_slug} - {code} - {event_url[:80]}...")
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URLs reales extraídas", {
-                            "total_events_from_urls": len(unique_urls),
-                            "events": [{"name": n, "code": c, "url": u[:100]} for u, c, n in unique_urls[:5]]
-                        })
-                        # #endregion
-                
-                # ESTRATEGIA FINAL (ÚLTIMO RECURSO ABSOLUTO): Solo si NO encontramos URLs reales
-                # ⚠️ ADVERTENCIA CRÍTICA: Esta estrategia construye URLs desde markdown, lo cual NO es ideal
-                # porque asume formatos que pueden cambiar. Esta estrategia debería eliminarse en el futuro
-                # y reemplazarse por una mejor extracción de URLs reales del HTML/rawHtml.
-                # 
-                # PROBLEMA: Si Sala REM cambia el formato de sus URLs, esta estrategia fallará.
-                # SOLUCIÓN IDEAL: Mejorar la extracción de URLs reales del rawHtml para que siempre
-                # encontremos las URLs reales y nunca necesitemos construir URLs.
-                if not events and markdown and html:
-                    print(f"   ⚠️ ADVERTENCIA: No se encontraron URLs reales, usando construcción desde markdown (NO IDEAL)")
-                    print(f"   🔍 Esta estrategia puede fallar si Sala REM cambia el formato de sus URLs")
-                    print(f"   🔍 Estrategia final: Construir URLs desde markdown y buscar códigos en HTML...")
-                    
-                    # #region agent log
-                    debug_log("debug-session", "run1", "F", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "ADVERTENCIA: Usando construcción de URLs (no ideal)", {
-                        "reason": "no_real_urls_found",
-                        "html_length": len(html),
-                        "raw_html_length": len(raw_html) if raw_html else 0,
-                        "markdown_length": len(markdown)
-                    })
-                    # #endregion
-                    print(f"   🔍 Estrategia final: Construir URLs desde markdown y buscar códigos en HTML...")
-                    # Extraer nombres de eventos y fechas del markdown
-                    # Formato: ## Fri26Dec ... FRIDAY SESSION | SALA REM
-                    event_info = []
-                    lines = markdown.split('\n')
-                    current_date = None
-                    for i, line in enumerate(lines):
-                        # Detectar fechas (## Fri26Dec)
-                        date_match = re.search(r'##\s*(\w{3})(\d{1,2})(\w{3})', line)
-                        if date_match:
-                            day_name = date_match.group(1)  # Fri, Sat, Wed
-                            day_num = date_match.group(2)   # 26, 27, 31
-                            month = date_match.group(3)     # Dec
-                            # Convertir a formato fecha
-                            month_map = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-                                       'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
-                            month_num = month_map.get(month, '12')
-                            # Corregir año: si estamos en enero 2026, usar 2026, no 2025
-                            # El markdown muestra "January 2026" al inicio
-                            current_year = 2026  # Año correcto según los eventos del usuario
-                            current_date = f"{day_num}-{month_num}-{current_year}"
-                        
-                        # Detectar nombres de eventos (líneas que no son fechas ni horas)
-                        if current_date and line.strip() and not line.startswith('##') and not re.match(r'^\d{1,2}:\d{2}', line.strip()):
-                            event_name = line.strip()
-                            # Limpiar emojis y caracteres especiales para el slug
-                            # Reemplazar caracteres especiales comunes primero
-                            slug_name = event_name.lower()
-                            # Reemplazar "|" con espacio, luego limpiar
-                            slug_name = slug_name.replace('|', ' ')
-                            slug_name = slug_name.replace('/', ' ')
-                            # Eliminar emojis y caracteres especiales, mantener solo letras, números, espacios y guiones
-                            slug_name = re.sub(r'[^\w\s-]', '', slug_name)
-                            # Reemplazar múltiples espacios con un solo guion
-                            slug_name = re.sub(r'\s+', '-', slug_name)
-                            # Eliminar guiones múltiples consecutivos
-                            slug_name = re.sub(r'-+', '-', slug_name)
-                            slug_name = slug_name.strip('-')
-                            event_info.append({
-                                'name': event_name,
-                                'slug': slug_name,
-                                'date': current_date
-                            })
-                    
-                    print(f"   🔍 Eventos detectados en markdown: {len(event_info)}")
-                    for evt in event_info:
-                        print(f"   🔍   - {evt['name']} ({evt['date']})")
-                    
-                    # Buscar códigos de 4 caracteres en el HTML que puedan ser códigos de eventos
-                    # PRIORIDAD 1: Buscar códigos cerca de "sala-rem/events" (más confiable)
-                    event_code_patterns = [
-                        r'sala-rem/events/[^"\s<>\)]+-([A-Z0-9]{4})',  # En URLs de eventos
-                        r'/events/[^"\s<>\)]+-([A-Z0-9]{4})',  # En URLs de eventos (sin sala-rem)
-                        r'data-code["\']?\s*[:=]\s*["\']?([A-Z0-9]{4})',  # En atributos data-code
-                        r'code["\']?\s*[:=]\s*["\']?([A-Z0-9]{4})',  # En atributos code
-                    ]
-                    
-                    valid_codes = []
-                    for pattern in event_code_patterns:
-                        matches = re.findall(pattern, html, re.IGNORECASE)
-                        for code in matches:
-                            # Validar que el código tiene letras Y números (más probable que sea un código de evento)
-                            if any(x.isalpha() for x in code) and any(x.isdigit() for x in code):
-                                if code.upper() not in valid_codes:
-                                    valid_codes.append(code.upper())
-                    
-                    # PRIORIDAD 2: Si no encontramos códigos cerca de eventos, buscar en todo el HTML
-                    if not valid_codes:
-                        potential_codes = re.findall(r'[^a-zA-Z0-9]([A-Z0-9]{4})[^a-zA-Z0-9]', html)
-                        # Filtrar códigos que parezcan válidos (tienen letras y números)
-                        valid_codes = [c for c in set(potential_codes) if any(x.isalpha() for x in c) and any(x.isdigit() for x in c)]
-                    
-                    print(f"   🔍 Códigos potenciales encontrados: {len(valid_codes)} (mostrando primeros 10: {valid_codes[:10]})")
-                    
-                    # Filtrar eventos válidos (excluir texto de cookies, avisos legales, etc.)
-                    valid_events = []
-                    for evt in event_info:
-                        # Filtrar eventos que parezcan válidos (tienen más de 5 caracteres, no son enlaces, etc.)
-                        evt_name = evt['name'].strip()
-                        # Excluir: enlaces markdown, texto de cookies, avisos legales, fechas solas, etc.
-                        if (len(evt_name) > 5 and 
-                            not evt_name.startswith('[') and 
-                            not evt_name.lower() in ['december 2025', 'cookies', 'configurar', 'rechazar cookies', 'aceptar cookies', 
-                                                      'essencial', 'analytics', 'guardar configuración'] and
-                            not 'cookie' in evt_name.lower() and
-                            not 'política' in evt_name.lower() and
-                            not 'aviso' in evt_name.lower() and
-                            not 'usamos cookies' in evt_name.lower() and
-                            not 'este sitio utiliza' in evt_name.lower()):
-                            valid_events.append(evt)
-                    
-                    print(f"   🔍 Eventos válidos filtrados: {len(valid_events)}")
-                    for evt in valid_events:
-                        print(f"   🔍   - {evt['name']} ({evt['date']})")
-                    
-                    # ESTRATEGIA ESCALABLE: Emparejar eventos con códigos por orden de aparición
-                    # En lugar de construir todas las combinaciones (N×M), emparejamos por posición
-                    # Esto es más eficiente y escalable
-                    if valid_events and valid_codes:
-                        print(f"   🔍 Emparejando {len(valid_events)} eventos con {len(valid_codes)} códigos por orden de aparición...")
-                        
-                        # Emparejar por posición: primer evento con primer código, segundo con segundo, etc.
-                        # Si hay más eventos que códigos, los eventos extra no se procesan
-                        # Si hay más códigos que eventos, los códigos extra se ignoran
-                        max_pairs = min(len(valid_events), len(valid_codes))
-                        
-                        for i in range(max_pairs):
-                            evt = valid_events[i]
-                            code = valid_codes[i]
-                            
-                            date_parts = evt['date'].split('-')
-                            date_str = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                            
-                            # Mejorar generación del slug para Sala Rem
-                            # El formato es: primera-parte--segunda-parte--fecha-codigo
-                            # Ejemplo: friday-session--sala-rem--26-12-2025-EI7Q
-                            slug = evt['slug']
-                            event_name_lower = evt['name'].lower()
-                            
-                            # Detectar patrón común: "SESSION | SALA REM" o "SESSION / REM CLUB"
-                            # Dividir en dos partes: antes y después de "|" o "/"
-                            if '|' in evt['name'] or '/' in evt['name']:
-                                # Dividir por "|" o "/"
-                                parts = re.split(r'[|/]', evt['name'], 1)
-                                if len(parts) == 2:
-                                    part1 = parts[0].strip().lower()
-                                    part2 = parts[1].strip().lower()
-                                    # Limpiar y generar slugs
-                                    slug1 = re.sub(r'[^\w\s-]', '', part1)
-                                    slug1 = re.sub(r'\s+', '-', slug1).strip('-')
-                                    slug2 = re.sub(r'[^\w\s-]', '', part2)
-                                    slug2 = re.sub(r'\s+', '-', slug2).strip('-')
-                                    # Combinar con doble guion
-                                    slug = f"{slug1}--{slug2}"
-                            
-                            # Formato correcto según ejemplos del usuario:
-                            # - Eventos simples: slug-fecha-codigo (ej: jueves-universitario-08-01-20261-5YTV)
-                            # - Eventos con | o /: parte1--parte2--fecha-codigo (ej: friday-session--sala-rem--09-01-2026-HZOY)
-                            # Nota: algunos eventos tienen un dígito extra después del año (20261), pero por ahora usamos formato estándar
-                            if '|' in evt['name'] or '/' in evt['name']:
-                                # Eventos con dos partes: usar doble guion antes de la fecha
-                                url_slug = f"{slug}--{date_str}-{code}"
-                            else:
-                                # Eventos simples: usar un solo guion antes de la fecha
-                                url_slug = f"{slug}-{date_str}-{code}"
-                            test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
-                            
-                            # Guardar la fecha en el evento para usarla después
-                            day, month, year = date_parts[0], date_parts[1], date_parts[2]
-                            month_names = {'01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
-                                         '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
-                                         '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'}
-                            date_text = f"{day} {month_names.get(month, 'diciembre')}"
-                            
-                            events.append({
-                                'url': test_url,
-                                'venue_slug': venue_slug,
-                                'name': evt['name'],
-                                'code': code,
-                                'date_text': date_text,
-                                '_date_parts': {'day': day, 'month': month, 'year': year}
-                            })
-                            print(f"   🔍 URL construida (orden {i+1}): {evt['name']} - {code} - fecha: {date_text} - {test_url[:100]}...")
-                        
-                        if len(valid_events) > len(valid_codes):
-                            print(f"   ⚠️ {len(valid_events) - len(valid_codes)} eventos sin código (más eventos que códigos)")
-                        elif len(valid_codes) > len(valid_events):
-                            print(f"   ⚠️ {len(valid_codes) - len(valid_events)} códigos sin evento (más códigos que eventos)")
-                        
-                        print(f"   🔍 Total URLs construidas: {len(events)} (1 URL por evento, emparejado por orden)")
-                    
-            else:
-                # Para otras discotecas: buscar /events/CODIGO
-                event_url_patterns = re.findall(r'/events/([A-Z0-9-]{4,})', markdown)
-                for code in set(event_url_patterns):
-                    event_url = f"https://site.fourvenues.com/es/{venue_slug}/events/{code}"
-                    events.append({
-                        'url': event_url,
-                        'venue_slug': venue_slug,
-                        'name': f"Evento {code}",
-                        'code': code
-                    })
-                print(f"   🔍 URLs directas encontradas: {len(event_url_patterns)}")
-        
-        print(f"   🔍 Markdown: {len(events)} eventos encontrados")
-
-    # #region agent log
-    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html END", {
-        "total_events": len(events),
-        "events_summary": [{"name": e.get('name', ''), "code": e.get('code', ''), "url": e.get('url', '')[:100]} for e in events[:10]]
-    })
-    # #endregion
-
     return events
+
+
+def extract_from_raw_html(html: str, venue_slug: str) -> List[Dict]:
+    """
+    Busca URLs directamente en el HTML raw/renderizado.
+    ESTRATEGIA: Extracción de URLs reales del HTML/rawHtml.
+    """
+    events = []
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Buscar enlaces <a> reales
+    soup_links = soup.find_all('a', href=True)
+    soup_event_urls = []
+    for link in soup_links:
+        href = link.get('href', '')
+        if href and 'sala-rem' in href.lower() and '/events/' in href:
+            soup_event_urls.append(href)
+    
+    # Buscar URLs con regex
+    html_event_urls = []
+    html_event_urls += re.findall(r'https?://[^\s"\'<>\)]+sala-rem/events/[^\s"\'<>\)]+', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'/es/sala-rem/events/[^\s"\'<>\)]+', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'/sala-rem/events/[^\s"\'<>\)]+', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'(?:href|data-href|data-url|url|link|to|path)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'["\']([^"\']*sala-rem/events/[^"\']+)["\']', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'(?:data-|aria-)\w+["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'(?:url|href|link|path)\s*[:=]\s*([^\s,;\)]+sala-rem/events/[^\s,;\)]+)', html, re.IGNORECASE)
+    html_event_urls += re.findall(r'sala-rem/events/[a-zA-Z0-9\-_/]+', html, re.IGNORECASE)
+    
+    html_event_urls = list(set(html_event_urls + soup_event_urls))
+    
+    unique_urls = []
+    seen_slugs = set()
+    for event_url in html_event_urls:
+        event_url = event_url.strip().strip('"').strip("'").strip()
+        if not event_url or len(event_url) < 10:
+            continue
+        
+        if not is_valid_event_url(event_url):
+            continue
+        
+        if not event_url.startswith('http'):
+            if event_url.startswith('/'):
+                event_url = f"https://web.fourvenues.com{event_url}"
+            else:
+                event_url = f"https://web.fourvenues.com/{event_url}"
+        
+        if '/events/' not in event_url:
+            continue
+        
+        url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0].strip()
+        if not url_slug or url_slug in seen_slugs:
+            continue
+        
+        seen_slugs.add(url_slug)
+        code = extract_code_from_url(event_url, venue_slug)
+        
+        if not code or not is_valid_event_url(event_url, code):
+            continue
+        
+        code_index = url_slug.rfind(code) if code and code in url_slug else -1
+        if code_index > 0:
+            name_part = url_slug[:code_index].rstrip('-')
+            name_from_slug = name_part.replace('-', ' ').title() if name_part else f"Evento {code}"
+        else:
+            name_from_slug = url_slug.replace('-', ' ').title() if url_slug else f"Evento {code}"
+        
+        unique_urls.append((event_url, code, name_from_slug))
+    
+    for event_url, code, name_from_slug in unique_urls:
+        events.append({
+            'url': event_url,
+            'venue_slug': venue_slug,
+            'name': name_from_slug,
+            'code': code
+        })
+    
+    return events
+
+
+def extract_from_markdown(markdown: str, venue_slug: str) -> List[Dict]:
+    """
+    Extrae desde enlaces markdown [texto](url).
+    ESTRATEGIA 4: Para cuando no se encuentran eventos en HTML.
+    """
+    events = []
+    markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', markdown)
+    
+    for link_text, link_url in markdown_links:
+        if '/events/' not in link_url:
+            continue
+        
+        code = extract_code_from_url(link_url, venue_slug)
+        if not code:
+            continue
+        
+        if not is_valid_event_url(link_url, code):
+            continue
+        
+        # Hacer URL absoluta si es relativa
+        if not link_url.startswith('http'):
+            if link_url.startswith('/'):
+                link_url = f"https://web.fourvenues.com{link_url}"
+            else:
+                link_url = f"https://web.fourvenues.com/{link_url}"
+        
+        events.append({
+            'url': link_url,
+            'venue_slug': venue_slug,
+            'name': link_text.strip(),
+            'code': code
+        })
+    
+    return events
+
+
+def deduplicate_events(events: List[Dict]) -> List[Dict]:
+    """
+    Deduplica eventos usando múltiples criterios:
+    1. Por código único (prioridad alta)
+    2. Por URL exacta
+    3. Para Sala REM: por (nombre_normalizado + fecha)
+    
+    Mantiene el evento con más información (más fields completos)
+    
+    Args:
+        events: Lista de eventos a deduplicar
+    
+    Returns:
+        Lista de eventos únicos
+    """
+    if not events:
+        return []
+    
+    seen_urls = set()
+    seen_codes = set()
+    seen_name_date = set()  # Para Sala Rem: (nombre_normalizado, fecha)
+    unique_events = []
+    
+    for event in events:
+        event_url = event.get('url', '').strip()
+        event_code = event.get('code', '').strip().upper() if event.get('code') else None
+        event_name = event.get('name', '').strip()
+        venue_slug = event.get('venue_slug', '').lower()
+        is_sala_rem = 'sala-rem' in venue_slug
+        
+        # Normalizar URL
+        if event_url:
+            event_url = event_url.split('?')[0].split('#')[0]
+        
+        # Criterio 1: URL exacta (más confiable)
+        if event_url and event_url in seen_urls:
+            continue
+        
+        # Criterio 2: Para Sala REM, usar (nombre + fecha) como clave única
+        if is_sala_rem and event_name:
+            # Normalizar nombre (eliminar emojis, espacios extra, etc.)
+            name_normalized = re.sub(r'[^\w\s]', '', event_name.lower()).strip()
+            name_normalized = re.sub(r'\s+', ' ', name_normalized)
+            
+            # Obtener fecha de _date_parts, date_text o URL
+            event_date = None
+            if event.get('_date_parts'):
+                date_parts = event['_date_parts']
+                event_date = f"{date_parts['day']}-{date_parts['month']}-{date_parts['year']}"
+            elif event.get('date_text'):
+                # Intentar extraer fecha de date_text
+                date_match = re.search(r'(\d{1,2})\s+\w+', event.get('date_text', ''))
+                if date_match:
+                    day = date_match.group(1)
+                    month_map = {'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+                               'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+                               'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'}
+                    for month_name, month_num in month_map.items():
+                        if month_name in event.get('date_text', '').lower():
+                            event_date = f"{day}-{month_num}-2026"  # Año correcto
+                            break
+            elif event_url:
+                # Extraer fecha de la URL como último recurso
+                date_match = re.search(r'-{1,2}(\d{1,2})-(\d{2})-(\d{4})\d*-', event_url)
+                if date_match:
+                    event_date = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}"
+            
+            if event_date:
+                name_date_key = (name_normalized, event_date)
+                if name_date_key in seen_name_date:
+                    continue
+                seen_name_date.add(name_date_key)
+        
+        # Criterio 3: Para otros venues, usar código único
+        if not is_sala_rem and event_code and event_code in seen_codes:
+            continue
+        
+        # Añadir a sets de control
+        if event_url:
+            seen_urls.add(event_url)
+        if event_code:
+            seen_codes.add(event_code)
+        
+        unique_events.append(event)
+    
+    return unique_events
+
+
+def extract_events_from_html(html: str, venue_url: str, markdown: str = None, raw_html: str = None) -> List[Dict]:
+    """
+    Extrae eventos del HTML de FourVenues de forma robusta.
+    Usa múltiples estrategias de extracción en orden de prioridad.
+    """
+    debug_log("debug-session", "run1", "A", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "extract_events_from_html START", {
+        "venue_url": venue_url,
+        "html_length": len(html) if html else 0,
+        "markdown_length": len(markdown) if markdown else 0,
+        "raw_html_length": len(raw_html) if raw_html else 0
+    })
+    
+    soup = BeautifulSoup(html, 'html.parser')
+    venue_slug = venue_url.split('/')[-2] if '/events' in venue_url else ''
+    
+    all_events = []
+    
+    # ESTRATEGIA 1: Enlaces HTML con aria-label
+    all_events.extend(extract_from_html_links(soup, venue_slug))
+    
+    # ESTRATEGIA 2: Componentes personalizados (data-testid)
+    if not all_events:
+        all_events.extend(extract_from_custom_components(soup, venue_slug))
+    
+    # ESTRATEGIA 3: URLs reales del rawHtml (más información después del JS)
+    if not all_events:
+        html_to_search = raw_html if raw_html and len(raw_html) > len(html) else html
+        if html_to_search:
+            all_events.extend(extract_from_raw_html(html_to_search, venue_slug))
+    
+    # ESTRATEGIA 4: Enlaces markdown
+    if not all_events and markdown:
+        all_events.extend(extract_from_markdown(markdown, venue_slug))
+    
+    print(f"   ✅ {len(all_events)} eventos encontrados")
+    return all_events
 
 
 def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
@@ -1044,6 +685,180 @@ def scrape_venue(firecrawl: Firecrawl, url: str) -> List[Dict]:
         return []
 
 
+def match_tickets_with_schema(markdown_tickets: List[Dict], schema_tickets: List[Dict]) -> List[Dict]:
+    """
+    Combina tickets del markdown con tickets del schema.org de forma inteligente.
+    Prioriza schema cuando tiene precios válidos, pero preserva nombres del markdown.
+    
+    Args:
+        markdown_tickets: Tickets extraídos del markdown
+        schema_tickets: Tickets extraídos del schema.org
+    
+    Returns:
+        Lista de tickets combinados y enriquecidos
+    """
+    if not schema_tickets:
+        return markdown_tickets
+    
+    if not markdown_tickets:
+        return schema_tickets
+    
+    def normalize_name(name: str) -> str:
+        """Normaliza nombres para matching flexible"""
+        if not name:
+            return ""
+        normalized = re.sub(r'\s+', ' ', name.strip().upper())
+        normalized = normalized.replace('PROMOCIÓN', 'PROMOCION')
+        normalized = normalized.replace('CONSUMICIÓN', 'CONSUMICION')
+        normalized = normalized.replace('CONSUMICIONES', 'CONSUMICION')
+        return normalized
+    
+    schema_has_prices = any(st.get('precio') and str(st.get('precio')).strip() not in ['0', 'None', ''] for st in schema_tickets)
+    markdown_has_prices = any(t.get('precio') and str(t.get('precio')).strip() not in ['0', 'None', ''] for t in markdown_tickets)
+    
+    # Si schema tiene precios y markdown no, priorizar schema
+    if schema_has_prices and not markdown_has_prices:
+        schema_dict = {normalize_name(st['tipo']): st for st in schema_tickets}
+        enriched = []
+        
+        for t in markdown_tickets:
+            ticket_norm = normalize_name(t['tipo'])
+            if ticket_norm in schema_dict:
+                st = schema_dict[ticket_norm]
+                enriched_ticket = copy.deepcopy(st)
+                enriched_ticket['tipo'] = t['tipo']  # Preferir nombre del markdown
+                if t.get('agotadas') is True:
+                    enriched_ticket['agotadas'] = True
+                enriched.append(enriched_ticket)
+            else:
+                # Intentar match parcial por palabras comunes
+                best_partial = None
+                best_score = 0
+                for st in schema_tickets:
+                    schema_norm = normalize_name(st['tipo'])
+                    common = len(set(ticket_norm.split()) & set(schema_norm.split()))
+                    if common > best_score and common >= 2:
+                        best_score = common
+                        best_partial = st
+                
+                if best_partial:
+                    enriched_ticket = copy.deepcopy(best_partial)
+                    enriched_ticket['tipo'] = t['tipo']
+                    if t.get('agotadas') is True:
+                        enriched_ticket['agotadas'] = True
+                    enriched.append(enriched_ticket)
+                else:
+                    enriched.append(copy.deepcopy(t))
+        
+        # Añadir tickets del schema no usados
+        used_names = {normalize_name(t['tipo']) for t in enriched}
+        for st in schema_tickets:
+            if normalize_name(st['tipo']) not in used_names:
+                enriched.append(copy.deepcopy(st))
+        
+        return enriched
+    
+    # Si ambos tienen tickets, hacer matching inteligente
+    used_schema_indices = set()
+    result = []
+    
+    for t in markdown_tickets:
+        ticket_norm = normalize_name(t['tipo'])
+        matched = False
+        best_match = None
+        
+        # Estrategia 1: Match exacto por nombre
+        for idx, st in enumerate(schema_tickets):
+            if idx in used_schema_indices:
+                continue
+            if st['tipo'] == t['tipo']:
+                best_match = (idx, st)
+                matched = True
+                break
+        
+        # Estrategia 2: Match normalizado
+        if not matched:
+            for idx, st in enumerate(schema_tickets):
+                if idx in used_schema_indices:
+                    continue
+                schema_norm = normalize_name(st['tipo'])
+                if schema_norm == ticket_norm:
+                    best_match = (idx, st)
+                    matched = True
+                    break
+        
+        # Estrategia 3: Match parcial por palabras clave
+        if not matched:
+            ticket_keywords = set(re.findall(r'\b(ENTRADA|VIP|COPA|COPAS|CONSUMICION|PROMOCION|RESERVADO|REDUCIDA|ANTICIPADA)\b', ticket_norm))
+            best_partial = None
+            best_score = 0
+            
+            for idx, st in enumerate(schema_tickets):
+                if idx in used_schema_indices:
+                    continue
+                schema_norm = normalize_name(st['tipo'])
+                schema_keywords = set(re.findall(r'\b(ENTRADA|VIP|COPA|COPAS|CONSUMICION|PROMOCION|RESERVADO|REDUCIDA|ANTICIPADA)\b', schema_norm))
+                common_keywords = ticket_keywords & schema_keywords
+                score = len(common_keywords)
+                
+                # Bonus por números similares
+                ticket_numbers = set(re.findall(r'\b(\d+)\b', ticket_norm))
+                schema_numbers = set(re.findall(r'\b(\d+)\b', schema_norm))
+                if ticket_numbers and schema_numbers and ticket_numbers == schema_numbers:
+                    score += 2
+                
+                if score > best_score and score >= 2:
+                    best_partial = (idx, st)
+                    best_score = score
+            
+            if best_partial:
+                best_match = best_partial
+                matched = True
+        
+        # Estrategia 4: Match por precio (solo si es único)
+        if not matched and t.get('precio') and t['precio'] != "0":
+            price_matches = [st for idx, st in enumerate(schema_tickets) 
+                           if idx not in used_schema_indices 
+                           and st.get('precio') == t['precio'] 
+                           and st.get('precio') not in ['0', 'None', '']]
+            
+            if len(price_matches) == 1:
+                for idx, st in enumerate(schema_tickets):
+                    if idx in used_schema_indices:
+                        continue
+                    if st.get('precio') == t['precio'] and st.get('precio') not in ['0', 'None', '']:
+                        best_match = (idx, st)
+                        matched = True
+                        break
+        
+        # Aplicar match si se encontró
+        if matched and best_match:
+            idx, st = best_match
+            used_schema_indices.add(idx)
+            old_url = t.get('url_compra')
+            old_price = t.get('precio')
+            
+            t['url_compra'] = st['url_compra']
+            if st.get('precio') and st['precio'] not in ['0', 'None', '']:
+                t['precio'] = str(st['precio']).strip()
+            
+            # Preservar estado "agotadas" del markdown si está disponible (más confiable)
+            if t.get('agotadas') is not True and 'agotadas' in st:
+                if st['agotadas'] is True:
+                    t['agotadas'] = True
+                elif t.get('agotadas') is None:
+                    t['agotadas'] = st['agotadas']
+        
+        result.append(t)
+    
+    # Añadir tickets del schema no usados
+    for idx, st in enumerate(schema_tickets):
+        if idx not in used_schema_indices:
+            result.append(copy.deepcopy(st))
+    
+    return result
+
+
 def extract_tickets_from_schema(html: str) -> List[Dict]:
     """
     Extrae URLs precisas de tickets desde los bloques JSON-LD (Schema.org) en el HTML.
@@ -1057,12 +872,6 @@ def extract_tickets_from_schema(html: str) -> List[Dict]:
     soup = BeautifulSoup(html, 'html.parser')
     scripts = soup.find_all('script', type='application/ld+json')
     
-    # #region agent log
-    debug_log("debug-session", "run1", "I", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Buscando tickets en schema.org", {
-        "html_length": len(html),
-        "scripts_found": len(scripts)
-    })
-    # #endregion
     
     for script in scripts:
         try:
@@ -1094,15 +903,6 @@ def extract_tickets_from_schema(html: str) -> List[Dict]:
                         url = offer.get('url')
                         name = offer.get('name')
                         price = offer.get('price')
-                        
-                        # #region agent log
-                        debug_log("debug-session", "run1", "J", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Offer encontrado en schema", {
-                            "url": url[:100] if url else None,
-                            "name": name,
-                            "price": price,
-                            "has_tickets_url": url and '/tickets/' in url if url else False
-                        })
-                        # #endregion
                         
                         if url and '/tickets/' in url:
                             # Detectar estado "agotadas" desde múltiples fuentes en el schema
@@ -1571,15 +1371,6 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                     
                     # Buscar específicamente en objetos de tipo Event
                     for item in items:
-                        item_type = item.get('@type', '')
-                        # #region agent log
-                        debug_log("debug-session", "run1", "G", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Buscando imagen en schema.org", {
-                            "item_type": item_type,
-                            "has_image": 'image' in item,
-                            "image_value": str(item.get('image', ''))[:100] if item.get('image') else None
-                        })
-                        # #endregion
-                        
                         if item.get('@type') == 'Event' or 'Event' in str(item.get('@type', '')):
                             # El evento puede tener una imagen directamente
                             event_image = item.get('image')
@@ -1593,13 +1384,6 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
                                     img_url = event_image[0] if isinstance(event_image[0], str) else event_image[0].get('url', '')
                                 else:
                                     continue
-                                
-                                # #region agent log
-                                debug_log("debug-session", "run1", "H", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Imagen encontrada en schema Event", {
-                                    "img_url": img_url[:150],
-                                    "is_fourvenues": 'fourvenues.com' in img_url if img_url else False
-                                })
-                                # #endregion
                                 
                                 if img_url and 'fourvenues.com' in img_url:
                                     event['image'] = img_url
@@ -1647,261 +1431,10 @@ def scrape_event_details(firecrawl: Firecrawl, event: Dict) -> Dict:
         # ===== INTEGRAR URLs EXACTAS DESDE SCHEMA/RAW =====
         schema_tickets = extract_tickets_from_schema(raw_html)
         
-        # #region agent log
-        debug_log(session_id, run_id, "B", "scraper_firecrawl.py:413", "Schema tickets extraídos", {
-            "schema_tickets_count": len(schema_tickets),
-            "schema_tickets": [t.copy() if isinstance(t, dict) else str(t) for t in schema_tickets],
-            "raw_html_length": len(raw_html),
-            "event_url": event_url[:100]
-        })
-        # #endregion
         
-        # Función para normalizar nombres para matching flexible (definir antes de usar)
-        def normalize_name(name: str) -> str:
-            if not name:
-                return ""
-            normalized = re.sub(r'\s+', ' ', name.strip().upper())
-            normalized = normalized.replace('PROMOCIÓN', 'PROMOCION')
-            normalized = normalized.replace('CONSUMICIÓN', 'CONSUMICION')
-            normalized = normalized.replace('CONSUMICIONES', 'CONSUMICION')
-            return normalized
-        
+        # Combinar tickets del markdown con tickets del schema usando función centralizada
         if schema_tickets:
-            # ESTRATEGIA ADAPTATIVA: Priorizar schema cuando tenga precios válidos
-            # Si el schema tiene precios y los tickets del markdown no, usar schema como fuente principal
-            schema_has_prices = any(st.get('precio') and str(st.get('precio')).strip() not in ['0', 'None', ''] for st in schema_tickets)
-            markdown_has_prices = any(t.get('precio') and str(t.get('precio')).strip() not in ['0', 'None', ''] for t in tickets)
-            
-            # #region agent log
-            debug_log(session_id, run_id, "B", "scraper_firecrawl.py:657", "Evaluando estrategia de matching", {
-                "schema_tickets_count": len(schema_tickets),
-                "markdown_tickets_count": len(tickets),
-                "schema_has_prices": schema_has_prices,
-                "markdown_has_prices": markdown_has_prices
-            })
-            # #endregion
-            
-            # Si el schema tiene precios y el markdown no, priorizar schema
-            if schema_has_prices and not markdown_has_prices:
-                # #region agent log
-                debug_log(session_id, run_id, "B", "scraper_firecrawl.py:670", "Schema tiene precios, markdown no - priorizando schema", {
-                    "schema_tickets": [st.copy() for st in schema_tickets[:3]]
-                })
-                # #endregion
-                # Usar schema como base y enriquecer con nombres del markdown si coinciden
-                schema_tickets_dict = {normalize_name(st['tipo']): st for st in schema_tickets}
-                enriched_tickets = []
-                
-                for t in tickets:
-                    ticket_normalized = normalize_name(t['tipo'])
-                    if ticket_normalized in schema_tickets_dict:
-                        st = schema_tickets_dict[ticket_normalized]
-                        # Combinar: nombre del markdown, precio del schema, estado agotadas del markdown (más confiable)
-                        enriched_ticket = copy.deepcopy(st)
-                        enriched_ticket['tipo'] = t['tipo']  # Preferir nombre del markdown
-                        # Priorizar estado "agotadas" del markdown si está disponible (más confiable que schema)
-                        # El markdown detecta "Agotada" en el texto, el schema puede no tener esta info
-                        if t.get('agotadas') is True:
-                            enriched_ticket['agotadas'] = True
-                        # #region agent log
-                        debug_log(session_id, run_id, "B", "scraper_firecrawl.py:695", "Enriqueciendo ticket desde schema", {
-                            "ticket_markdown": t.copy(),
-                            "ticket_schema": st.copy(),
-                            "enriched_ticket": enriched_ticket.copy(),
-                            "agotadas_preservada": enriched_ticket.get('agotadas', False)
-                        })
-                        # #endregion
-                        enriched_tickets.append(enriched_ticket)
-                    else:
-                        # Si no hay match, intentar encontrar el mejor match parcial
-                        best_partial = None
-                        best_score = 0
-                        for st in schema_tickets:
-                            schema_normalized = normalize_name(st['tipo'])
-                            common = len(set(ticket_normalized.split()) & set(schema_normalized.split()))
-                            if common > best_score and common >= 2:
-                                best_score = common
-                                best_partial = st
-                        
-                        if best_partial:
-                            enriched_ticket = copy.deepcopy(best_partial)
-                            enriched_ticket['tipo'] = t['tipo']
-                            # Priorizar estado "agotadas" del markdown si está disponible
-                            if t.get('agotadas') is True:
-                                enriched_ticket['agotadas'] = True
-                            enriched_tickets.append(enriched_ticket)
-                        else:
-                            # Si no hay match, usar ticket del markdown pero intentar encontrar precio
-                            enriched_tickets.append(copy.deepcopy(t))
-                
-                # Si hay tickets del schema que no se usaron, añadirlos
-                used_schema_names = {normalize_name(t['tipo']) for t in enriched_tickets}
-                for st in schema_tickets:
-                    if normalize_name(st['tipo']) not in used_schema_names:
-                        enriched_tickets.append(copy.deepcopy(st))
-                
-                tickets = enriched_tickets
-            elif tickets:
-                # Si ambos tienen tickets, hacer matching inteligente
-                # Crear un conjunto de schema_tickets usados para evitar asignaciones duplicadas
-                used_schema_tickets = set()
-                
-                for t in tickets:
-                    # #region agent log
-                    debug_log(session_id, run_id, "B", "scraper_firecrawl.py:418", "Buscando match para ticket", {
-                        "ticket": t.copy(),
-                        "schema_tickets_disponibles": [st.copy() for st in schema_tickets]
-                    })
-                    # #endregion
-                    
-                    # Buscar coincidencia: PRIORIZAR match por nombre (flexible), luego por precio
-                    # Solo usar match por precio si NO hay match por nombre y el precio es único
-                    matched = False
-                    best_match = None
-                    match_type = None
-                    
-                    # Función para normalizar nombres para matching flexible
-                    def normalize_name(name: str) -> str:
-                        if not name:
-                            return ""
-                        # Normalizar: quitar espacios extra, convertir a mayúsculas, quitar acentos básicos
-                        normalized = re.sub(r'\s+', ' ', name.strip().upper())
-                        # Reemplazar variaciones comunes
-                        normalized = normalized.replace('PROMOCIÓN', 'PROMOCION')
-                        normalized = normalized.replace('CONSUMICIÓN', 'CONSUMICION')
-                        normalized = normalized.replace('CONSUMICIONES', 'CONSUMICION')
-                        return normalized
-                    
-                    ticket_name_normalized = normalize_name(t['tipo'])
-                    
-                    # Primero buscar match exacto por nombre
-                    for idx, st in enumerate(schema_tickets):
-                        if idx in used_schema_tickets:
-                            continue
-                        if st['tipo'] == t['tipo']:
-                            best_match = (idx, st)
-                            match_type = "name_exact"
-                            matched = True
-                            break
-                    
-                    # Si no hay match exacto, buscar match normalizado (flexible)
-                    if not matched:
-                        for idx, st in enumerate(schema_tickets):
-                            if idx in used_schema_tickets:
-                                continue
-                            schema_name_normalized = normalize_name(st['tipo'])
-                            if schema_name_normalized == ticket_name_normalized:
-                                best_match = (idx, st)
-                                match_type = "name_normalized"
-                                matched = True
-                                break
-                    
-                    # Si aún no hay match, buscar match parcial (contiene palabras clave importantes)
-                    if not matched:
-                        # Extraer palabras clave del ticket (ENTRADA, VIP, COPA, etc.)
-                        ticket_keywords = set(re.findall(r'\b(ENTRADA|VIP|COPA|COPAS|CONSUMICION|PROMOCION|RESERVADO|REDUCIDA|ANTICIPADA)\b', ticket_name_normalized))
-                        best_partial_match = None
-                        best_partial_score = 0
-                        
-                        for idx, st in enumerate(schema_tickets):
-                            if idx in used_schema_tickets:
-                                continue
-                            schema_name_normalized = normalize_name(st['tipo'])
-                            schema_keywords = set(re.findall(r'\b(ENTRADA|VIP|COPA|COPAS|CONSUMICION|PROMOCION|RESERVADO|REDUCIDA|ANTICIPADA)\b', schema_name_normalized))
-                            
-                            # Calcular score: palabras clave en común
-                            common_keywords = ticket_keywords & schema_keywords
-                            score = len(common_keywords)
-                            
-                            # Bonus si el nombre contiene números similares (ej: "1 COPA" vs "1 CONSUMICION")
-                            ticket_numbers = set(re.findall(r'\b(\d+)\b', ticket_name_normalized))
-                            schema_numbers = set(re.findall(r'\b(\d+)\b', schema_name_normalized))
-                            if ticket_numbers and schema_numbers and ticket_numbers == schema_numbers:
-                                score += 2
-                            
-                            if score > best_partial_score and score >= 2:  # Mínimo 2 palabras clave en común
-                                best_partial_match = (idx, st)
-                                best_partial_score = score
-                        
-                        if best_partial_match:
-                            best_match = best_partial_match
-                            match_type = "name_partial"
-                            matched = True
-                    
-                    # Si no hay match por nombre, buscar por precio (solo si el precio es único)
-                    if not matched and t['precio'] != "0":
-                        # Contar cuántos schema_tickets tienen el mismo precio
-                        price_matches = [st for idx, st in enumerate(schema_tickets) 
-                                       if idx not in used_schema_tickets 
-                                       and st['precio'] == t['precio'] 
-                                       and st['precio'] != "0"]
-                        
-                        # Solo usar match por precio si hay exactamente UN match (evitar ambigüedad)
-                        if len(price_matches) == 1:
-                            for idx, st in enumerate(schema_tickets):
-                                if idx in used_schema_tickets:
-                                    continue
-                                if st['precio'] == t['precio'] and st['precio'] != "0":
-                                    best_match = (idx, st)
-                                    match_type = "price_unique"
-                                    matched = True
-                                    break
-                    
-                    if matched and best_match:
-                        idx, st = best_match
-                        used_schema_tickets.add(idx)  # Marcar como usado
-                        old_url = t['url_compra']
-                        old_price = t['precio']
-                        t['url_compra'] = st['url_compra']
-                        
-                        # SIEMPRE ACTUALIZAR PRECIO desde schema si está disponible
-                        # El schema es la fuente de verdad más confiable para precios
-                        if st['precio'] and st['precio'] != "0" and st['precio'] != "None":
-                            t['precio'] = str(st['precio']).strip()
-                        
-                        # Actualizar estado "agotadas" desde schema SOLO si el markdown no tiene información
-                        # El markdown es más confiable para detectar "agotadas" (detecta "Agotada" en el texto)
-                        # Solo usar schema si el markdown no tiene el estado definido o es False
-                        if 'agotadas' in st:
-                            # Si el markdown ya detectó "agotadas" como True, mantenerlo (más confiable)
-                            if t.get('agotadas') is not True:
-                                # Si el schema dice que está agotada, actualizar
-                                if st['agotadas'] is True:
-                                    t['agotadas'] = True
-                                # Si el schema dice que NO está agotada pero el markdown no tenía info, usar schema
-                                elif t.get('agotadas') is None:
-                                    t['agotadas'] = st['agotadas']
-                        
-                        # #region agent log
-                        debug_log(session_id, run_id, "B", "scraper_firecrawl.py:421", "MATCH encontrado", {
-                            "ticket_tipo": t['tipo'],
-                            "ticket_precio_antes": old_price,
-                            "ticket_precio_despues": t['precio'],
-                            "schema_tipo": st['tipo'],
-                            "schema_precio": st['precio'],
-                            "match_type": match_type,
-                            "url_anterior": old_url,
-                            "url_nueva": t['url_compra'],
-                            "precio_actualizado": old_price != t['precio'],
-                            "agotadas_actualizada": t.get('agotadas', False)
-                        })
-                        # #endregion
-                    else:
-                        # #region agent log
-                        debug_log(session_id, run_id, "B", "scraper_firecrawl.py:421", "NO se encontró match", {
-                            "ticket": t.copy(),
-                            "reason": "no_match" if not matched else "ambiguous_price"
-                        })
-                        # #endregion
-            else:
-                # Si no hay tickets del markdown, usar directamente los del schema
-                tickets = schema_tickets
-                # #region agent log
-                debug_log(session_id, run_id, "B", "scraper_firecrawl.py:674", "Usando tickets directamente del schema (sin markdown)", {
-                    "schema_tickets_count": len(schema_tickets),
-                    "schema_tickets": [st.copy() for st in schema_tickets]
-                })
-                # #endregion
+            tickets = match_tickets_with_schema(tickets, schema_tickets)
 
         if tickets:
             # Crear copias profundas de los tickets para evitar referencias compartidas
@@ -2168,123 +1701,11 @@ def scrape_all_events(urls: List[str] = None, get_details: bool = True) -> List[
     # Obtener detalles de eventos si se solicita
     if get_details and all_events:
         # Deduplicar eventos antes de scrapear detalles
-        # Para Sala Rem: deduplicar por nombre + fecha (ya que tenemos múltiples códigos para el mismo evento)
-        # Para otros: deduplicar por URL o código
-        seen_urls = set()
-        seen_codes = set()
-        seen_name_date = set()  # Para Sala Rem: (nombre_normalizado, fecha)
-        unique_events = []
-        
         print(f"\n🔍 Deduplicando {len(all_events)} eventos...")
-        
-        for event in all_events:
-            event_url = event.get('url', '')
-            event_code = event.get('code', '')
-            event_name = event.get('name', '')
-            venue_slug = event.get('venue_slug', '')
-            is_sala_rem = 'sala-rem' in venue_slug.lower()
-            
-            # #region agent log
-            debug_log("debug-session", "run1", "A", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Procesando evento para deduplicación", {
-                "event_name": event_name,
-                "event_url": event_url[:100],
-                "event_code": event_code,
-                "is_sala_rem": is_sala_rem,
-                "_date_parts": event.get('_date_parts'),
-                "date_text": event.get('date_text')
-            })
-            # #endregion
-            
-            # Para Sala Rem: deduplicar por nombre + fecha
-            if is_sala_rem:
-                # Normalizar nombre (eliminar emojis, espacios extra, etc.)
-                name_normalized = re.sub(r'[^\w\s]', '', event_name.lower()).strip()
-                name_normalized = re.sub(r'\s+', ' ', name_normalized)
-                # Obtener fecha de _date_parts o date_text
-                event_date = None
-                if event.get('_date_parts'):
-                    date_parts = event['_date_parts']
-                    event_date = f"{date_parts['day']}-{date_parts['month']}-{date_parts['year']}"
-                elif event.get('date_text'):
-                    # Intentar extraer fecha de date_text
-                    date_match = re.search(r'(\d{1,2})\s+\w+', event.get('date_text', ''))
-                    if date_match:
-                        day = date_match.group(1)
-                        # Buscar mes en date_text
-                        month_map = {'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
-                                   'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
-                                   'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'}
-                        for month_name, month_num in month_map.items():
-                            if month_name in event.get('date_text', '').lower():
-                                event_date = f"{day}-{month_num}-2025"
-                                break
-                
-                # #region agent log
-                debug_log("debug-session", "run1", "B", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Deduplicación Sala Rem", {
-                    "name_normalized": name_normalized,
-                    "event_date": event_date,
-                    "name_date_key": (name_normalized, event_date) if event_date else None,
-                    "seen_name_date": list(seen_name_date)
-                })
-                # #endregion
-                
-                if event_date:
-                    name_date_key = (name_normalized, event_date)
-                    if name_date_key in seen_name_date:
-                        print(f"   ⚠️ Evento duplicado (nombre+fecha): {event_name} - {event_date} - código: {event_code}")
-                        # #region agent log
-                        debug_log("debug-session", "run1", "C", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (Sala Rem)", {
-                            "event_name": event_name,
-                            "event_date": event_date,
-                            "name_date_key": name_date_key
-                        })
-                        # #endregion
-                        continue
-                    seen_name_date.add(name_date_key)
-                    print(f"   ✅ Evento único (Sala Rem): {event_name} - {event_date} - código: {event_code}")
-                else:
-                    print(f"   ⚠️ No se pudo extraer fecha para {event_name}, usando URL para deduplicación")
-            
-            # Si ya vimos esta URL, saltar
-            if event_url in seen_urls:
-                print(f"   ⚠️ Evento duplicado (URL): {event.get('name', 'N/A')} - {event_url[:80]}...")
-                # #region agent log
-                debug_log("debug-session", "run1", "D", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (URL)", {
-                    "event_name": event_name,
-                    "event_url": event_url[:100]
-                })
-                # #endregion
-                continue
-            
-            # Para otros venues: deduplicar por código
-            if not is_sala_rem and event_code and event_code in seen_codes:
-                print(f"   ⚠️ Evento duplicado (código): {event.get('name', 'N/A')} - código: {event_code}")
-                # #region agent log
-                debug_log("debug-session", "run1", "E", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento duplicado detectado (código)", {
-                    "event_name": event_name,
-                    "event_code": event_code
-                })
-                # #endregion
-                continue
-            
-            seen_urls.add(event_url)
-            if event_code:
-                seen_codes.add(event_code)
-            unique_events.append(event)
-            print(f"   ✅ Evento único añadido: {event_name} - {event_code}")
-            # #region agent log
-            debug_log("debug-session", "run1", "F", f"scraper_firecrawl.py:{sys._getframe().f_lineno}", "Evento único añadido", {
-                "event_name": event_name,
-                "event_code": event_code,
-                "event_url": event_url[:100],
-                "total_unique": len(unique_events)
-            })
-            # #endregion
-        
-        if len(unique_events) < len(all_events):
-            print(f"   ✅ Eventos deduplicados: {len(all_events)} → {len(unique_events)}")
-        
-        all_events = unique_events  # Usar eventos únicos
+        original_count = len(all_events)
+        all_events = deduplicate_events(all_events)
+        if len(all_events) < original_count:
+            print(f"   ✅ Eventos deduplicados: {original_count} → {len(all_events)}")
         
         print(f"\n🎫 Obteniendo detalles de {len(all_events)} eventos...")
         for i, event in enumerate(all_events):
