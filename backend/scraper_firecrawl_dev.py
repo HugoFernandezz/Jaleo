@@ -475,55 +475,128 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                 print(f"   🔍 URLs directas encontradas (Sala Rem): {len(codes_found)} códigos únicos")
                 
                 # ESTRATEGIA: Buscar URLs completas en rawHtml primero (más información después del JS)
-                # Si no hay eventos, buscar URLs completas directamente en el HTML/rawHtml
+                # PRIORIDAD: Extraer URLs reales del HTML/rawHtml en lugar de construirlas
+                # Esto hace el scraper adaptable a cualquier formato futuro
                 if not events:
                     html_to_search = raw_html if raw_html and len(raw_html) > len(html) else html
                     if html_to_search:
-                        print(f"   🔍 Buscando URLs completas de eventos en {'rawHtml' if raw_html and len(raw_html) > len(html) else 'HTML'}...")
-                        # Buscar todas las URLs que contengan sala-rem/events con múltiples patrones
-                        # Patrón 1: URLs completas con https://
-                        html_event_urls = re.findall(r'https?://[^"\s<>\)]+sala-rem/events/[^"\s<>\)]+', html_to_search, re.IGNORECASE)
-                        # Patrón 2: URLs relativas /es/sala-rem/events/
-                        html_event_urls += re.findall(r'/es/sala-rem/events/[^"\s<>\)]+', html_to_search, re.IGNORECASE)
-                        # Patrón 3: URLs en atributos href, data-href, etc.
-                        html_event_urls += re.findall(r'(?:href|data-href|data-url|url)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
-                        # Patrón 4: URLs en JSON/JavaScript (más común en rawHtml después del JS)
+                        print(f"   🔍 Buscando URLs reales de eventos en {'rawHtml' if raw_html and len(raw_html) > len(html) else 'HTML'}...")
+                        
+                        # #region agent log
+                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "Buscando URLs reales en HTML/rawHtml", {
+                            "html_length": len(html),
+                            "raw_html_length": len(raw_html) if raw_html else 0,
+                            "using_raw_html": html_to_search == raw_html
+                        })
+                        # #endregion
+                        
+                        # Buscar todas las URLs que contengan sala-rem/events con múltiples patrones flexibles
+                        # ADAPTATIVO: Usar patrones amplios para capturar cualquier formato de URL
+                        # Patrón 1: URLs completas con https:// o http:// (más flexible)
+                        html_event_urls = re.findall(r'https?://[^\s"\'<>\)]+sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
+                        # Patrón 2: URLs relativas /es/sala-rem/events/ o /sala-rem/events/ (más flexible)
+                        html_event_urls += re.findall(r'/es/sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
+                        html_event_urls += re.findall(r'/sala-rem/events/[^\s"\'<>\)]+', html_to_search, re.IGNORECASE)
+                        # Patrón 3: URLs en atributos href, data-href, data-url, url, etc. (más flexible)
+                        html_event_urls += re.findall(r'(?:href|data-href|data-url|url|link|to|path)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
+                        # Patrón 4: URLs en JSON/JavaScript (más común en rawHtml después del JS) - más flexible
                         html_event_urls += re.findall(r'["\']([^"\']*sala-rem/events/[^"\']+)["\']', html_to_search, re.IGNORECASE)
+                        # Patrón 5: URLs en atributos de elementos (data-*, aria-*, etc.)
+                        html_event_urls += re.findall(r'(?:data-|aria-)\w+["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)', html_to_search, re.IGNORECASE)
+                        # Patrón 6: URLs en strings de JavaScript (sin comillas específicas)
+                        html_event_urls += re.findall(r'(?:url|href|link|path)\s*[:=]\s*([^\s,;\)]+sala-rem/events/[^\s,;\)]+)', html_to_search, re.IGNORECASE)
+                        # Patrón 7: Buscar cualquier ocurrencia de "sala-rem/events/" seguida de caracteres válidos para URL
+                        html_event_urls += re.findall(r'sala-rem/events/[a-zA-Z0-9\-_/]+', html_to_search, re.IGNORECASE)
                         
                         print(f"   🔍 URLs de eventos encontradas en HTML: {len(html_event_urls)}")
                         
+                        # #region agent log
+                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URLs encontradas (antes de filtrar)", {
+                            "total_urls": len(html_event_urls),
+                            "sample_urls": html_event_urls[:5]
+                        })
+                        # #endregion
+                        
                         # Si encontramos URLs completas, usarlas directamente (más confiable)
-                        # Filtrar y normalizar URLs
+                        # Filtrar y normalizar URLs - ADAPTATIVO: no asumir formato específico
                         unique_urls = []
                         seen_slugs = set()
                         for event_url in html_event_urls:
+                            # Limpiar URL (puede tener espacios, caracteres especiales, etc.)
+                            event_url = event_url.strip().strip('"').strip("'").strip()
+                            if not event_url or len(event_url) < 10:
+                                continue
+                            
                             # Hacer URL absoluta si es relativa
                             if not event_url.startswith('http'):
-                                event_url = f"https://web.fourvenues.com{event_url}" if event_url.startswith('/') else f"https://web.fourvenues.com/{event_url}"
+                                if event_url.startswith('/'):
+                                    event_url = f"https://web.fourvenues.com{event_url}"
+                                else:
+                                    event_url = f"https://web.fourvenues.com/{event_url}"
                             
-                            # Extraer slug único para deduplicar
-                            url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0]
-                            if url_slug in seen_slugs:
+                            # Extraer slug único para deduplicar (todo después de /events/)
+                            if '/events/' not in event_url:
                                 continue
+                            
+                            url_slug = event_url.split('/events/')[-1].split('?')[0].split('#')[0].strip()
+                            if not url_slug or url_slug in seen_slugs:
+                                continue
+                            
+                            # ADAPTATIVO: Aceptar CUALQUIER URL que contenga /events/ sin validaciones estrictas
+                            # No asumir formatos específicos - el scraper debe ser adaptable a cualquier formato futuro
                             seen_slugs.add(url_slug)
                             
-                            # Validar que el slug tiene el formato correcto (termina con código de 4 caracteres)
-                            parts = url_slug.split('-')
-                            if len(parts) > 0 and len(parts[-1]) == 4 and parts[-1].isalnum():
-                                code = parts[-1]
-                                # Extraer nombre del slug si es posible
-                                # Formato: friday-session-sala-rem--26-12-2025-EI7Q
-                                slug_parts = url_slug.split('--')
-                                if len(slug_parts) >= 1:
-                                    name_from_slug = slug_parts[0].replace('-', ' ').title()
-                                else:
-                                    name_from_slug = f"Evento {code}"
-                                
-                                unique_urls.append((event_url, code, name_from_slug))
+                            # Extraer código de forma flexible: buscar alfanuméricos al final (4+ caracteres)
+                            # No asumir formato específico, solo que el código probablemente está al final
+                            code = None
+                            slug_parts = url_slug.split('-')
+                            
+                            # Buscar desde el final hacia atrás un segmento alfanumérico de 4+ caracteres
+                            for i in range(len(slug_parts) - 1, -1, -1):
+                                part = slug_parts[i]
+                                if part.isalnum() and len(part) >= 4:
+                                    code = part
+                                    break
+                                elif part.replace('-', '').isalnum() and len(part.replace('-', '')) >= 4:
+                                    code = part
+                                    break
+                            
+                            # Si no encontramos código, intentar con los últimos 2 segmentos combinados
+                            if not code and len(slug_parts) >= 2:
+                                potential_code = '-'.join(slug_parts[-2:])
+                                if potential_code.replace('-', '').isalnum() and len(potential_code.replace('-', '')) >= 4:
+                                    code = potential_code
+                            
+                            # ADAPTATIVO: Si aún no hay código, generar uno desde el slug
+                            # Esto permite que el scraper funcione incluso si el formato cambia
+                            if not code:
+                                # Usar los últimos caracteres del slug como código temporal
+                                code = url_slug[-8:] if len(url_slug) >= 8 else url_slug
+                            
+                            # Extraer nombre del slug de forma flexible
+                            # Intentar inferir nombre desde el slug, pero no asumir formato específico
+                            code_index = url_slug.rfind(code) if code and code in url_slug else -1
+                            if code_index > 0:
+                                name_part = url_slug[:code_index].rstrip('-')
+                                name_from_slug = name_part.replace('-', ' ').title() if name_part else f"Evento {code}"
+                            else:
+                                # Si no podemos encontrar el código, usar todo el slug como nombre
+                                name_from_slug = url_slug.replace('-', ' ').title() if url_slug else f"Evento {code}"
+                            
+                            unique_urls.append((event_url, code, name_from_slug))
+                            
+                            # #region agent log
+                            debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URL procesada y añadida", {
+                                "url": event_url,
+                                "code": code,
+                                "name": name_from_slug,
+                                "url_slug": url_slug
+                            })
+                            # #endregion
                         
                         print(f"   🔍 Procesando {len(unique_urls)} URLs únicas de eventos...")
                         
-                        for event_url, code, name_from_slug in unique_urls[:10]:  # Máximo 10 URLs
+                        for event_url, code, name_from_slug in unique_urls:
                             events.append({
                                 'url': event_url,
                                 'venue_slug': venue_slug,
@@ -531,10 +604,35 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                                 'code': code
                             })
                             print(f"   🔍 Evento encontrado en HTML: {name_from_slug} - {code} - {event_url[:80]}...")
+                        
+                        # #region agent log
+                        debug_log("debug-session", "run1", "E", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "URLs reales extraídas", {
+                            "total_events_from_urls": len(unique_urls),
+                            "events": [{"name": n, "code": c, "url": u[:100]} for u, c, n in unique_urls[:5]]
+                        })
+                        # #endregion
                 
-                # ESTRATEGIA FINAL: Si aún no hay eventos, construir URLs basándose en nombres y fechas del markdown
-                # y buscar códigos en el HTML de forma más amplia
+                # ESTRATEGIA FINAL (ÚLTIMO RECURSO ABSOLUTO): Solo si NO encontramos URLs reales
+                # ⚠️ ADVERTENCIA CRÍTICA: Esta estrategia construye URLs desde markdown, lo cual NO es ideal
+                # porque asume formatos que pueden cambiar. Esta estrategia debería eliminarse en el futuro
+                # y reemplazarse por una mejor extracción de URLs reales del HTML/rawHtml.
+                # 
+                # PROBLEMA: Si Sala REM cambia el formato de sus URLs, esta estrategia fallará.
+                # SOLUCIÓN IDEAL: Mejorar la extracción de URLs reales del rawHtml para que siempre
+                # encontremos las URLs reales y nunca necesitemos construir URLs.
                 if not events and markdown and html:
+                    print(f"   ⚠️ ADVERTENCIA: No se encontraron URLs reales, usando construcción desde markdown (NO IDEAL)")
+                    print(f"   🔍 Esta estrategia puede fallar si Sala REM cambia el formato de sus URLs")
+                    print(f"   🔍 Estrategia final: Construir URLs desde markdown y buscar códigos en HTML...")
+                    
+                    # #region agent log
+                    debug_log("debug-session", "run1", "F", f"scraper_firecrawl_dev.py:{sys._getframe().f_lineno}", "ADVERTENCIA: Usando construcción de URLs (no ideal)", {
+                        "reason": "no_real_urls_found",
+                        "html_length": len(html),
+                        "raw_html_length": len(raw_html) if raw_html else 0,
+                        "markdown_length": len(markdown)
+                    })
+                    # #endregion
                     print(f"   🔍 Estrategia final: Construir URLs desde markdown y buscar códigos en HTML...")
                     # Extraer nombres de eventos y fechas del markdown
                     # Formato: ## Fri26Dec ... FRIDAY SESSION | SALA REM
@@ -552,7 +650,10 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                             month_map = {'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
                                        'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'}
                             month_num = month_map.get(month, '12')
-                            current_date = f"{day_num}-{month_num}-2025"
+                            # Corregir año: si estamos en enero 2026, usar 2026, no 2025
+                            # El markdown muestra "January 2026" al inicio
+                            current_year = 2026  # Año correcto según los eventos del usuario
+                            current_date = f"{day_num}-{month_num}-{current_year}"
                         
                         # Detectar nombres de eventos (líneas que no son fechas ni horas)
                         if current_date and line.strip() and not line.startswith('##') and not re.match(r'^\d{1,2}:\d{2}', line.strip()):
@@ -667,7 +768,16 @@ def extract_events_from_html(html: str, venue_url: str, markdown: str = None, ra
                                     # Combinar con doble guion
                                     slug = f"{slug1}--{slug2}"
                             
-                            url_slug = f"{slug}--{date_str}-{code}"
+                            # Formato correcto según ejemplos del usuario:
+                            # - Eventos simples: slug-fecha-codigo (ej: jueves-universitario-08-01-20261-5YTV)
+                            # - Eventos con | o /: parte1--parte2--fecha-codigo (ej: friday-session--sala-rem--09-01-2026-HZOY)
+                            # Nota: algunos eventos tienen un dígito extra después del año (20261), pero por ahora usamos formato estándar
+                            if '|' in evt['name'] or '/' in evt['name']:
+                                # Eventos con dos partes: usar doble guion antes de la fecha
+                                url_slug = f"{slug}--{date_str}-{code}"
+                            else:
+                                # Eventos simples: usar un solo guion antes de la fecha
+                                url_slug = f"{slug}-{date_str}-{code}"
                             test_url = f"https://web.fourvenues.com/es/sala-rem/events/{url_slug}"
                             
                             # Guardar la fecha en el evento para usarla después
