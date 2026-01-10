@@ -278,6 +278,13 @@ class VenueScraperBase(ABC):
             if venue_info:
                 event['venue_info'] = venue_info
             
+            # IMPORTANTE: Extraer fecha desde Schema.org si no tenemos fecha
+            if not event.get('date_text') and not event.get('_date_parts'):
+                date_info = self._extract_date_from_schema(raw_html)
+                if date_info:
+                    event.update(date_info)
+                    print(f"      📅 Fecha extraída de Schema.org: {event.get('date_text', 'N/A')}")
+            
             return event
             
         except Exception as e:
@@ -677,6 +684,70 @@ class VenueScraperBase(ABC):
                 continue
         
         return venue_info
+    
+    def _extract_date_from_schema(self, html: str) -> Optional[Dict]:
+        """
+        Extrae fecha del evento desde Schema.org JSON-LD.
+        
+        Schema.org Event tiene campos startDate y endDate en formato ISO 8601.
+        Ejemplo: "2025-01-10T23:59:00+01:00"
+        """
+        if not html:
+            return None
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                if not script.string:
+                    continue
+                data = json.loads(script.string.strip())
+                
+                items = []
+                if isinstance(data, list):
+                    items = data
+                elif isinstance(data, dict):
+                    items = data.get('@graph', [data])
+                
+                for item in items:
+                    if item.get('@type') == 'Event' or 'Event' in str(item.get('@type', '')):
+                        start_date = item.get('startDate')
+                        end_date = item.get('endDate')
+                        
+                        if start_date:
+                            # Parsear fecha ISO 8601: "2025-01-10T23:59:00+01:00"
+                            date_match = re.match(r'(\d{4})-(\d{2})-(\d{2})T?(\d{2})?:?(\d{2})?', start_date)
+                            if date_match:
+                                year = date_match.group(1)
+                                month = date_match.group(2)
+                                day = date_match.group(3)
+                                hora = date_match.group(4) or '23'
+                                minuto = date_match.group(5) or '00'
+                                
+                                # Mapear mes a nombre en español
+                                month_names = {
+                                    '01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
+                                    '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
+                                    '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'
+                                }
+                                
+                                result = {
+                                    'date_text': f"{int(day)} {month_names.get(month, 'enero')}",
+                                    '_date_parts': {'day': day, 'month': month, 'year': year},
+                                    'hora_inicio': f"{hora}:{minuto}"
+                                }
+                                
+                                # Extraer hora de fin si existe
+                                if end_date:
+                                    end_match = re.match(r'\d{4}-\d{2}-\d{2}T?(\d{2})?:?(\d{2})?', end_date)
+                                    if end_match and end_match.group(1):
+                                        result['hora_fin'] = f"{end_match.group(1)}:{end_match.group(2) or '00'}"
+                                
+                                return result
+            except:
+                continue
+        
+        return None
 
 
 # ==============================================================================
@@ -807,12 +878,36 @@ class SiteFourVenuesScraper(VenueScraperBase):
                 
                 code = href.split('/')[-1] if '/' in href else href
                 
+                # Obtener nombre del card
+                name = card.get_text(strip=True) if card.name != 'a' else 'Evento'
+                
                 event = {
                     'url': href,
                     'venue_slug': self.name,
-                    'name': card.get_text(strip=True) if card.name != 'a' else link_elem.get('aria-label', 'Evento'),
+                    'name': name,
                     'code': code
                 }
+                
+                # IMPORTANTE: Buscar aria-label en el enlace para extraer fecha
+                # El enlace padre suele tener aria-label con toda la información
+                aria_label = link_elem.get('aria-label', '')
+                if aria_label and 'Evento' in aria_label:
+                    parsed = self.parse_aria_label(aria_label)
+                    # Solo actualizar nombre si el actual es genérico
+                    if name in ['Evento', ''] and parsed.get('name'):
+                        event['name'] = parsed['name']
+                    # Añadir fecha, horario, edad
+                    if parsed.get('date_text'):
+                        event['date_text'] = parsed['date_text']
+                    if parsed.get('hora_inicio'):
+                        event['hora_inicio'] = parsed['hora_inicio']
+                    if parsed.get('hora_fin'):
+                        event['hora_fin'] = parsed['hora_fin']
+                    if parsed.get('age_info'):
+                        event['age_info'] = parsed['age_info']
+                    if parsed.get('age_min'):
+                        event['age_min'] = parsed['age_min']
+                
                 events.append(event)
                 
             except Exception:
@@ -885,275 +980,42 @@ class DodoScraper(SiteFourVenuesScraper):
 
 
 # ==============================================================================
-# SCRAPER web.fourvenues.com (Sala Rem)
+# SCRAPER site.fourvenues.com (Sala Rem)
 # ==============================================================================
 
-class SalaRemScraper(VenueScraperBase):
+class SalaRemScraper(SiteFourVenuesScraper):
     """
-    Scraper para Sala Rem en web.fourvenues.com.
+    Scraper para Sala Rem.
     
-    Este venue tiene una estructura diferente y requiere estrategias específicas:
-    - URLs con formato: /events/nombre--fecha-CODIGO
-    - Contenido cargado dinámicamente (más tiempo de espera)
-    - Fechas en la URL con formato DD-MM-YYYY
+    Sala Rem está disponible tanto en:
+    - https://site.fourvenues.com/es/sala-rem/events (preferido - misma estructura que otros venues)
+    - https://web.fourvenues.com/es/sala-rem/events (alternativa)
     
-    TODO: Esta clase necesita mejoras específicas basadas en análisis de eventos reales.
+    Hereda de SiteFourVenuesScraper para usar la misma estrategia de aria-label
+    que funciona para Luminata, Odiseo y Dodo.
     """
     
     name = "sala-rem"
-    base_url = "https://web.fourvenues.com"
-    
-    def get_scrape_config(self) -> dict:
-        """Sala Rem necesita más tiempo y formatos adicionales."""
-        return {
-            "formats": ["html", "markdown", "rawHtml"],
-            "actions": [
-                {"type": "wait", "milliseconds": 20000},
-                {"type": "scroll", "direction": "down", "amount": 1500},
-                {"type": "wait", "milliseconds": 8000},
-                {"type": "scroll", "direction": "down", "amount": 1500},
-                {"type": "wait", "milliseconds": 8000},
-                {"type": "scroll", "direction": "down", "amount": 1500},
-                {"type": "wait", "milliseconds": 8000}
-            ],
-            "wait_for": 20000
-        }
-    
-    def get_retry_config(self) -> dict:
-        """Configuración de reintento más agresiva."""
-        return self.get_scrape_config()  # Misma config para Sala Rem
+    # Usar site.fourvenues.com que tiene la misma estructura que los otros venues
+    base_url = "https://site.fourvenues.com"
     
     def should_retry(self) -> bool:
+        """Sala Rem puede necesitar reintentos."""
         return True
     
-    def extract_event_code(self, href: str) -> Optional[str]:
-        """
-        Extrae código de eventos de Sala Rem.
-        Formato: /events/slug--DD-MM-YYYY-CODIGO
-        """
-        # Patrón principal: fecha seguida de código
-        match = re.search(r'/(?:-{1,2})?\d{1,2}-\d{2}-\d{4}\d*-([A-Z0-9]{4,})(?:/|$)', href)
-        if match:
-            return match.group(1)
-        
-        # Fallback: última parte de la URL
-        match = re.search(r'/events/([^/]+)$', href)
-        if match:
-            slug = match.group(1)
-            parts = slug.split('-')
-            if parts and parts[-1].isalnum() and len(parts[-1]) >= 4:
-                return parts[-1]
-        
-        return None
-    
-    def extract_date_from_url(self, url: str) -> Optional[Dict]:
-        """Extrae fecha de la URL de Sala Rem."""
-        match = re.search(r'-{1,2}(\d{1,2})-(\d{2})-(\d{4})\d*-', url)
-        if match:
-            day, month, year = match.group(1), match.group(2), match.group(3)
-            month_names = {
-                '01': 'enero', '02': 'febrero', '03': 'marzo', '04': 'abril',
-                '05': 'mayo', '06': 'junio', '07': 'julio', '08': 'agosto',
-                '09': 'septiembre', '10': 'octubre', '11': 'noviembre', '12': 'diciembre'
-            }
-            return {
-                'date_text': f"{day} {month_names.get(month, 'diciembre')}",
-                '_date_parts': {'day': day, 'month': month, 'year': year}
-            }
-        return None
-    
-    def extract_events_from_html(self, html: str, markdown: str = None, raw_html: str = None) -> List[Dict]:
-        """
-        Extrae eventos de Sala Rem con múltiples estrategias.
-        """
-        events = []
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Debug
-        all_event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
-        print(f"   🔍 Debug: {len(all_event_links)} enlaces con '/events/' encontrados")
-        
-        # ESTRATEGIA 1: Enlaces directos con /events/
-        event_links = soup.find_all('a', href=lambda x: x and '/events/' in x)
-        print(f"   🔍 Debug Estrategia 1 (Sala Rem): {len(event_links)} enlaces encontrados")
-        
-        for link in event_links:
-            try:
-                href = link.get('href', '')
-                code = self.extract_event_code(href)
-                
-                if not code:
-                    continue
-                
-                # Obtener nombre
-                aria_label = link.get('aria-label', '')
-                link_text = link.get_text(strip=True)
-                name = None
-                
-                if aria_label and 'Evento' in aria_label:
-                    name_match = re.search(r'Evento\s*:\s*(.+?)(?:\.\s*Edad|\s*$)', aria_label)
-                    if name_match:
-                        name = name_match.group(1).strip()
-                
-                if not name and link_text and len(link_text) > 5:
-                    name = link_text[:100]
-                
-                if not name:
-                    parent = link.find_parent()
-                    if parent:
-                        parent_text = parent.get_text(strip=True)
-                        if parent_text and len(parent_text) > 5:
-                            name = parent_text[:100]
-                
-                if not name:
-                    name = f"Evento {code}"
-                
-                event = {
-                    'url': href,
-                    'venue_slug': self.name,
-                    'name': name,
-                    'code': code,
-                    'image': link.find('img').get('src', '') if link.find('img') else ''
-                }
-                
-                # Extraer fecha de URL
-                date_info = self.extract_date_from_url(href)
-                if date_info:
-                    event.update(date_info)
-                
-                events.append(event)
-                
-            except Exception:
-                continue
-        
-        # ESTRATEGIA 2: Extraer desde markdown
-        if not events and markdown:
-            events = self._extract_from_markdown(markdown, html, raw_html)
-        
-        # ESTRATEGIA 3: Buscar URLs en HTML/rawHtml
-        if not events:
-            events = self._extract_urls_from_html(html, raw_html)
-        
-        return events
-    
-    def _extract_from_markdown(self, markdown: str, html: str, raw_html: str) -> List[Dict]:
-        """Extrae eventos desde markdown."""
-        events = []
-        print(f"   🔍 Intentando extraer desde markdown ({len(markdown)} caracteres)...")
-        
-        # Buscar enlaces en markdown
-        markdown_links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', markdown)
-        print(f"   🔍 Markdown links encontrados: {len(markdown_links)}")
-        
-        for link_text, link_url in markdown_links:
-            if '/events/' not in link_url:
-                continue
-            
-            code = self.extract_event_code(link_url)
-            if not code:
-                continue
-            
-            # Hacer URL absoluta
-            if not link_url.startswith('http'):
-                link_url = f"{self.base_url}{link_url}"
-            
-            event = {
-                'url': link_url,
-                'venue_slug': self.name,
-                'name': link_text.strip(),
-                'code': code
-            }
-            
-            date_info = self.extract_date_from_url(link_url)
-            if date_info:
-                event.update(date_info)
-            
-            events.append(event)
-        
-        print(f"   🔍 Markdown: {len(events)} eventos encontrados")
-        return events
-    
-    def _extract_urls_from_html(self, html: str, raw_html: str) -> List[Dict]:
-        """Busca URLs de eventos directamente en el HTML."""
-        events = []
-        html_to_search = raw_html if raw_html and len(raw_html) > len(html) else html
-        
-        if not html_to_search:
-            return events
-        
-        print(f"   🔍 Buscando URLs en {'rawHtml' if raw_html and len(raw_html) > len(html) else 'HTML'}...")
-        
-        # Múltiples patrones
-        patterns = [
-            r'https?://[^"\s<>\)]+sala-rem/events/[^"\s<>\)]+',
-            r'/es/sala-rem/events/[^"\s<>\)]+',
-            r'(?:href|data-href)["\']?\s*[:=]\s*["\']?([^"\']*sala-rem/events/[^"\']+)',
-            r'["\']([^"\']*sala-rem/events/[^"\']+)["\']'
-        ]
-        
-        found_urls = []
-        for pattern in patterns:
-            found_urls.extend(re.findall(pattern, html_to_search, re.IGNORECASE))
-        
-        print(f"   🔍 URLs encontradas: {len(found_urls)}")
-        
-        # Procesar y deduplicar
-        seen_slugs = set()
-        for url in found_urls:
-            if not url.startswith('http'):
-                url = f"{self.base_url}{url}" if url.startswith('/') else f"{self.base_url}/{url}"
-            
-            url_slug = url.split('/events/')[-1].split('?')[0].split('#')[0]
-            if url_slug in seen_slugs:
-                continue
-            seen_slugs.add(url_slug)
-            
-            code = self.extract_event_code(url)
-            if not code:
-                continue
-            
-            # Extraer nombre del slug
-            slug_parts = url_slug.split('--')
-            name = slug_parts[0].replace('-', ' ').title() if slug_parts else f"Evento {code}"
-            
-            event = {
-                'url': url,
-                'venue_slug': self.name,
-                'name': name,
-                'code': code
-            }
-            
-            date_info = self.extract_date_from_url(url)
-            if date_info:
-                event.update(date_info)
-            
-            events.append(event)
-        
-        print(f"   🔍 URLs procesadas: {len(events)} eventos")
-        return events[:10]  # Máximo 10
-    
-    def scrape_event_details(self, event: Dict) -> Dict:
-        """Override para manejar URLs de Sala Rem."""
-        event = copy.deepcopy(event)
-        event_url = event.get('url', '')
-        
-        if not event_url:
-            return event
-        
-        # Hacer URL absoluta
-        if not event_url.startswith('http'):
-            event_url = f"{self.base_url}{event_url}"
-        
-        # Extraer fecha de URL si no está
-        if not event.get('date_text'):
-            date_info = self.extract_date_from_url(event_url)
-            if date_info:
-                event.update(date_info)
-                print(f"      📅 Fecha extraída de URL: {event['date_text']}")
-        
-        # Usar el método base para el resto
-        event['url'] = event_url
-        return super().scrape_event_details(event)
+    def get_scrape_config(self) -> dict:
+        """Sala Rem puede necesitar más tiempo de espera."""
+        return {
+            "formats": ["html"],
+            "actions": [
+                {"type": "wait", "milliseconds": 10000},
+                {"type": "scroll", "direction": "down", "amount": 1000},
+                {"type": "wait", "milliseconds": 3000},
+                {"type": "scroll", "direction": "down", "amount": 1000},
+                {"type": "wait", "milliseconds": 3000}
+            ],
+            "wait_for": 8000
+        }
 
 
 # ==============================================================================
