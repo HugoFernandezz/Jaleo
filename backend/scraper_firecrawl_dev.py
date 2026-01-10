@@ -1203,9 +1203,22 @@ def transform_to_app_format(events: List[Dict]) -> List[Dict]:
 # ==============================================================================
 
 # Registro de scrapers disponibles
+# =============================================================================
+# TEMPORAL: Solo Sala Rem para desarrollo
+# Cambiar DEV_MODE_SALA_REM_ONLY = False cuando termine el desarrollo
+# =============================================================================
+DEV_MODE_SALA_REM_ONLY = True
+
+
 def get_venue_scrapers(firecrawl: Firecrawl = None) -> List[VenueScraperBase]:
     """Retorna lista de scrapers para todos los venues."""
     fc = firecrawl or Firecrawl(api_key=API_KEY)
+    
+    # TEMPORAL: Solo Sala Rem para desarrollo rápido
+    if DEV_MODE_SALA_REM_ONLY:
+        print("⚠️  MODO DESARROLLO: Solo scrapeando Sala Rem")
+        return [SalaRemScraper(fc)]
+    
     return [
         LuminataScraper(fc),
         OdiseoScraper(fc),
