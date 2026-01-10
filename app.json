@@ -2,7 +2,7 @@
   "expo": {
     "name": "Jaleo!",
     "slug": "partyfinder",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -14,8 +14,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.jaleo.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
+        "CFBundleDevelopmentRegion": "es",
+        "CFBundleLocalizations": ["es"],
         "NSUserNotificationsUsageDescription": "Necesitamos acceso a las notificaciones para avisarte cuando salgan nuevas entradas para tus eventos favoritos.",
         "NSCalendarsUsageDescription": "Permite agregar eventos a tu calendario para que no se te olvide ninguna fiesta.",
         "NSCalendarsWriteOnlyUsageDescription": "Permite agregar eventos a tu calendario para que no se te olvide ninguna fiesta.",
